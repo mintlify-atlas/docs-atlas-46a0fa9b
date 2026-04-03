@@ -1,0 +1,281 @@
+---
+title: "Bound methods"
+description: "Pytdbot adds convenience methods directly to TDLib types so you can act on objects without needing the Client reference."
+---
+
+## What are bound methods?
+
+TDLib types like `Message` and `UpdateNewCallbackQuery` are auto-generated from the TDLib schema. Pytdbot extends these classes with extra Python methods — called _bound methods_ — that let you reply, edit, download, and answer directly on the object.
+
+Without bound methods you would write:
+
+```python
+@client.on_message()
+async def handler(c: Client, message: types.Message):
+    await c.sendTextMessage(chat_id=message.chat_id, text="Hi", reply_to_message_id=message.id)
+```
+
+With bound methods you write:
+
+```python
+@client.on_message()
+async def handler(c: Client, message: types.Message):
+    await message.reply_text("Hi")
+```
+
+The `chat_id` and `reply_to_message_id` are filled in automatically from the object's own fields.
+
+## How the client reference works
+
+Every type that carries bound methods has a `_client` attribute injected by Pytdbot at dispatch time. This is how bound methods reach back to the `Client` to perform API calls.
+
+```python
+class MessageBoundMethods:
+    def __init__(self):
+        self._client: pytdbot.Client  # type annotation only — set by the dispatcher
+```
+
+You never set `_client` yourself; it is always present when the object arrives in a handler.
+
+## `Message` bound methods
+
+The `Message` type has the largest set of bound methods. See the [Message reference](/api/types/message) for the full parameter list of each method.
+
+### Properties (read-only, cached)
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `from_id` | `int \| None` | Sender ID — `user_id` or `chat_id` depending on sender type. |
+| `reply_to_message_id` | `int \| None` | Message ID of the replied-to message, or `None`. |
+| `text` | `str` | Text content for `MessageText`; empty string for other types. |
+| `entities` | `list[TextEntity] \| None` | Text entities for `MessageText`; `None` otherwise. |
+| `caption` | `str \| None` | Caption for media content types; `None` for text. |
+| `caption_entities` | `list[TextEntity] \| None` | Caption entities for media; `None` otherwise. |
+| `remote_file_id` | `str \| None` | Remote file ID for media messages. |
+| `remote_unique_file_id` | `str \| None` | Stable unique remote file ID for media messages. |
+
+### Async reply methods
+
+| Method | Description |
+|--------|-------------|
+| `reply_text(text, parse_mode, ...)` | Send a text reply. |
+| `reply_photo(photo, caption, ...)` | Send a photo reply. |
+| `reply_video(video, caption, ...)` | Send a video reply. |
+| `reply_document(document, caption, ...)` | Send a document reply. |
+| `reply_animation(animation, caption, ...)` | Send an animation reply. |
+| `reply_audio(audio, caption, ...)` | Send an audio reply. |
+| `reply_voice(voice, caption, ...)` | Send a voice note reply. |
+| `reply_video_note(video_note, ...)` | Send a round video note reply. |
+| `reply_sticker(sticker, emoji, ...)` | Send a sticker reply. |
+
+All reply methods accept `no_reply=True` to send a message in the same chat without the reply quote.
+
+### Async edit/moderation methods
+
+| Method | Description |
+|--------|-------------|
+| `edit_text(text, parse_mode, ...)` | Edit the message text. |
+| `delete(revoke=True)` | Delete the message. |
+| `pin(disable_notification, only_for_self)` | Pin the message. |
+| `unpin()` | Unpin the message. |
+| `react(emoji, is_big)` | Add or remove a reaction. |
+| `ban(banned_until_date)` | Ban the sender. |
+| `kick()` | Kick the sender. |
+| `restrict(permissions, restricted_until_date)` | Restrict the sender. |
+
+### Async utility methods
+
+| Method | Description |
+|--------|-------------|
+| `action(action_type)` | Broadcast a chat action. Supports `async with`. |
+| `forward(chat_id, ...)` | Forward the message with attribution. |
+| `copy(chat_id, ...)` | Copy the message without the attribution header. |
+| `mention(parse_mode)` | Get a text mention for the sender. |
+| `download(...)` | Download the attached media file. |
+| `getChat()` | Fetch the `Chat` for this message's chat. |
+| `getUser()` | Fetch the `User` for the sender. |
+| `getChatMember()` | Fetch the sender's `ChatMember` in this chat. |
+| `getRepliedMessage()` | Fetch the message this message replies to. |
+| `getMessageLink(...)` | Generate a shareable message link. |
+
+### Example
+
+```python
+from pytdbot import Client, types
+
+@client.on_message()
+async def echo(c: Client, message: types.Message):
+    if isinstance(message.content, types.MessageText):
+        async with message.action("typing"):
+            await message.reply_text(
+                f"You said: {message.text}",
+                parse_mode="html",
+            )
+    elif isinstance(message.content, types.MessageDocument):
+        local = await message.download()
+        if not isinstance(local, types.Error):
+            await message.reply_text(f"Saved to {local.path}")
+```
+
+---
+
+## `CallbackQuery` bound methods
+
+Bound to `UpdateNewCallbackQuery`. Gives you the tools to answer a button press and modify the originating message.
+
+### Properties
+
+<ResponseField name="callback_data" type="CallbackData">
+  Deserialised callback data set with `pytdbot.utils.callback_data`. Returns an empty `CallbackData` object if the payload was not created that way.
+</ResponseField>
+
+<ResponseField name="text" type="str">
+  Callback payload decoded as a UTF-8 string. Returns `""` when the payload is not of type `CallbackQueryPayloadData`.
+</ResponseField>
+
+### Async methods
+
+**`getMessage()`**
+
+Fetches the `Message` that contains the inline keyboard that triggered this query.
+
+**`answer(text, show_alert=None, url=None, cache_time=None)`**
+
+Answer the callback query. You must call this within a few seconds or Telegram will show the user a loading spinner that never resolves.
+
+<ParamField path="text" type="str" required>
+  Text shown to the user — as a toast notification or an alert dialog.
+</ParamField>
+<ParamField path="show_alert" type="bool | None">
+  Show as an alert dialog instead of a toast.
+</ParamField>
+<ParamField path="url" type="str | None">
+  URL to open in the user's browser.
+</ParamField>
+<ParamField path="cache_time" type="int | None">
+  How long (in seconds) to cache the answer on the client side.
+</ParamField>
+
+**`edit_message_text(text, parse_mode, ...)`**
+
+Edit the text of the message that originated this callback query.
+
+<ParamField path="text" type="str" required>
+  New message text.
+</ParamField>
+<ParamField path="parse_mode" type="str | None">
+  Parse mode for the new text.
+</ParamField>
+<ParamField path="disable_web_page_preview" type="bool" default="False">
+  Suppress the link preview.
+</ParamField>
+<ParamField path="reply_markup" type="ReplyMarkup | None">
+  Updated inline keyboard.
+</ParamField>
+
+**`edit_message_caption(caption, parse_mode, ...)`**
+
+Edit the caption of the media message that originated this callback query.
+
+**`edit_message_reply_markup(reply_markup)`**
+
+Replace the inline keyboard on the originating message without changing the text.
+
+<ParamField path="reply_markup" type="ReplyMarkup" required>
+  The new keyboard to attach.
+</ParamField>
+
+### Example
+
+```python
+from pytdbot import Client, types
+
+@client.on_updateNewCallbackQuery()
+async def on_button(c: Client, query: types.UpdateNewCallbackQuery):
+    if query.text == "confirm":
+        await query.edit_message_text("Confirmed!", parse_mode="html")
+        await query.answer(text="Done")
+    else:
+        await query.answer(text="Unknown action", show_alert=True)
+```
+
+---
+
+## `File` / `RemoteFile` bound methods
+
+Bound to both `File` (local TDLib file record) and `RemoteFile` (a remote file by ID). These methods let you trigger downloads and deletions directly on file objects you encounter in message content.
+
+**`download(priority=1, offset=0, limit=0, synchronous=True)`**
+
+Download the file to the local TDLib cache.
+
+<ParamField path="priority" type="int" default="1">
+  Download priority. Higher values are downloaded first. Range: `1`–`32`.
+</ParamField>
+<ParamField path="offset" type="int" default="0">
+  Starting byte offset for partial downloads.
+</ParamField>
+<ParamField path="limit" type="int" default="0">
+  Maximum number of bytes to download. `0` means download to the end.
+</ParamField>
+<ParamField path="synchronous" type="bool" default="True">
+  When `True`, the coroutine waits until the download completes before returning.
+</ParamField>
+
+Returns `types.File` on success or `types.Error` on failure. Returns `None` if the object is neither a `File` nor a `RemoteFile`.
+
+When called on a `RemoteFile`, it first calls `getRemoteFile` to resolve the remote ID to a local `file_id`, then proceeds with `downloadFile`.
+
+**`delete()`**
+
+Delete the file from the local TDLib file cache. Frees disk space; the file can be re-downloaded later.
+
+Returns `types.Ok` on success, `types.Error` on failure, or `None` if the ID cannot be resolved.
+
+### Example
+
+```python
+@client.on_message()
+async def save_photo(c: Client, message: types.Message):
+    if isinstance(message.content, types.MessagePhoto):
+        # The photo's File object lives at sizes[-1].photo
+        photo_file = message.content.photo.sizes[-1].photo
+        result = await photo_file.download()
+        if isinstance(result, types.Error):
+            print(f"Download failed: {result.message}")
+        else:
+            print(f"Saved to: {result.path}")  # result is LocalFile
+```
+
+---
+
+## `MessageSender` bound methods
+
+Bound to `MessageSenderUser` and `MessageSenderChat`. Provides a unified way to identify the sender without `isinstance` checks at the call site.
+
+### Properties
+
+<ResponseField name="from_id" type="int | None">
+  Returns `user_id` for `MessageSenderUser` or `chat_id` for `MessageSenderChat`. Returns `None` if the instance is neither.
+</ResponseField>
+
+<ResponseField name="is_user" type="bool">
+  `True` if this sender is a `MessageSenderUser`.
+</ResponseField>
+
+<ResponseField name="is_chat" type="bool">
+  `True` if this sender is a `MessageSenderChat` (anonymous group admin or channel).
+</ResponseField>
+
+### Example
+
+```python
+@client.on_message()
+async def show_sender(c: Client, message: types.Message):
+    sender = message.sender_id
+
+    if sender.is_user:
+        print(f"User ID: {sender.from_id}")
+    elif sender.is_chat:
+        print(f"Chat ID: {sender.from_id}")
+```

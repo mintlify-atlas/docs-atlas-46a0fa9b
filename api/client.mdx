@@ -1,0 +1,508 @@
+---
+title: "Client"
+description: "The Client class — your main interface to TDLib and Telegram."
+---
+
+`pytdbot.Client` is the central class you instantiate to connect to Telegram via TDLib. It inherits from both `Decorators` (handler registration decorators) and `Methods` (all TDLib API wrapper methods).
+
+## Minimal example
+
+```python client_example.py
+import asyncio
+from pytdbot import Client
+
+client = Client(
+    api_id=123456,
+    api_hash="your_api_hash",
+    token="your_bot_token",
+    database_encryption_key="your_key",
+    files_directory="./td_files",
+)
+
+@client.on_updateNewMessage()
+async def on_message(c, update):
+    await update.reply_text("Hello!")
+
+client.run()
+```
+
+---
+
+## Constructor parameters
+
+<ParamField body="token" type="str" placeholder="1234567890:ABCdef...">
+  Bot token obtained from [@BotFather](https://t.me/BotFather). Omit when running as a userbot.
+</ParamField>
+
+<ParamField body="api_id" type="int">
+  Telegram API ID obtained from [my.telegram.org](https://my.telegram.org).
+</ParamField>
+
+<ParamField body="api_hash" type="str">
+  Telegram API hash obtained from [my.telegram.org](https://my.telegram.org).
+</ParamField>
+
+<ParamField body="database_encryption_key" type="str | bytes">
+  Encryption key used for the local TDLib database. Required unless running as a userbot or connecting via RabbitMQ.
+</ParamField>
+
+<ParamField body="files_directory" type="str">
+  Directory path where TDLib stores its database and downloaded files. Required unless running as a userbot or connecting via RabbitMQ.
+</ParamField>
+
+<ParamField body="rabbitmq_url" type="str">
+  Connection URL for a RabbitMQ server. When provided, the client communicates with [TDLib Server](https://github.com/pytdbot/tdlib-server) over AMQP instead of loading a local `libtdjson`.
+</ParamField>
+
+<ParamField body="instance_id" type="str">
+  Instance ID used to name RabbitMQ queues. Defaults to a random four-character ID when not provided.
+</ParamField>
+
+<ParamField body="lib_path" type="str">
+  Explicit path to the `libtdjson` shared library. Defaults to auto-detection when omitted.
+</ParamField>
+
+<ParamField body="plugins" type="Plugins">
+  A `pytdbot.types.Plugins` object that tells the client which plugin modules to load on startup.
+</ParamField>
+
+<ParamField body="default_parse_mode" type="str">
+  Default parse mode applied to all send/edit methods when the caller does not pass an explicit `parse_mode`. Accepted values: `markdown`, `markdownv2`, `html`. Defaults to `None` (no parsing).
+</ParamField>
+
+<ParamField body="system_language_code" type="str" default="en">
+  IETF language tag sent to TDLib as the system language. Default is `"en"`.
+</ParamField>
+
+<ParamField body="device_model" type="str">
+  Device model string sent to TDLib. Auto-detected when omitted.
+</ParamField>
+
+<ParamField body="use_test_dc" type="bool" default="false">
+  Connect to the Telegram test environment instead of production. Default is `False`.
+</ParamField>
+
+<ParamField body="use_file_database" type="bool" default="true">
+  Persist information about downloaded and uploaded files between restarts. Default is `True`.
+</ParamField>
+
+<ParamField body="use_chat_info_database" type="bool" default="true">
+  Maintain a local cache of users, groups, channels, and secret chats. Implies `use_file_database`. Default is `True`.
+</ParamField>
+
+<ParamField body="use_message_database" type="bool" default="true">
+  Maintain a local cache of chats and messages. Implies `use_chat_info_database`. Default is `True`.
+</ParamField>
+
+<ParamField body="workers" type="int" default="5">
+  Number of concurrent asyncio tasks that process incoming updates. Set to `None` to process every update immediately without a queue (may reduce throughput). Default is `5`.
+</ParamField>
+
+<ParamField body="queue_size" type="int" default="1000">
+  Maximum number of pending updates held in the internal asyncio queue before back-pressure is applied. Default is `1000`.
+</ParamField>
+
+<ParamField body="default_handlers_timeout" type="float">
+  Maximum seconds a handler coroutine may run before it is cancelled with `asyncio.TimeoutError`. Ignored when a handler was registered with its own `timeout`. Default is `None` (no timeout).
+</ParamField>
+
+<ParamField body="no_updates" type="bool" default="false">
+  Disable update processing entirely. Applicable only when using TDLib Server over RabbitMQ. Default is `False`.
+</ParamField>
+
+<ParamField body="td_verbosity" type="int" default="2">
+  TDLib log verbosity level (0 = fatal, 1 = error, 2 = warning, 3 = info, 4 = debug, 5 = verbose debug). Default is `2`.
+</ParamField>
+
+<ParamField body="td_log" type="LogStream">
+  A `pytdbot.types.LogStream` object controlling where TDLib writes its internal log. Defaults to stdout.
+</ParamField>
+
+<ParamField body="load_messages_before_reply" type="bool" default="false">
+  When a message is not found locally, attempt to fetch it from TDLib before processing the reply. Default is `False`.
+</ParamField>
+
+<ParamField body="user_bot" type="bool" default="false">
+  Pass `True` to authenticate as a regular Telegram account (userbot) rather than a bot. Default is `False`.
+</ParamField>
+
+<ParamField body="server_ack" type="bool" default="true">
+  Send server acknowledgements for processed updates when using TDLib Server. Default is `True`.
+</ParamField>
+
+---
+
+## Lifecycle methods
+
+### `run()`
+
+```python
+client.run()
+```
+
+Starts the event loop, calls `start()`, then blocks until the client is stopped (e.g. via `SIGINT`/`SIGTERM`). This is the typical entry point for simple bots running in the main thread.
+
+---
+
+### `await start(wait_login=True)`
+
+```python
+await client.start()
+```
+
+Starts the TDLib client and worker tasks. When `wait_login=True` (default), the coroutine blocks until the bot is fully authenticated. For userbots this flag is ignored.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `wait_login` | `bool` | `True` | Block until login is complete (bots only). |
+
+---
+
+### `await stop()`
+
+```python
+await client.stop()
+```
+
+Gracefully closes the TDLib session, cancels worker tasks, and releases all resources. Raises `RuntimeError` if the client is already stopped.
+
+**Returns:** `True` on success.
+
+---
+
+### `add_handler(update_type, func, filters, position, inner_object, timeout)`
+
+```python
+client.add_handler(
+    update_type=pytdbot.types.UpdateNewMessage,
+    func=my_handler,
+    filters=my_filter,
+    position=0,
+)
+```
+
+Registers a handler function programmatically. The decorator-based `@client.on_*()` helpers call this method internally.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `update_type` | `str \| type[Update]` | required | TDLib update type name or a subclass of `pytdbot.types.Update`. |
+| `func` | `Callable` | required | Async function to call when the update matches. |
+| `filters` | `pytdbot.filters.Filter` | `None` | Optional filter that must pass before invoking `func`. |
+| `position` | `int` | `None` | Insert position in the handler list. `None` appends to the end. |
+| `inner_object` | `bool` | `False` | Pass the inner object of the update (e.g. `UpdateNewMessage.message`) instead of the full update. |
+| `timeout` | `float` | `None` | Per-handler execution timeout in seconds. Overrides `default_handlers_timeout`. |
+
+---
+
+### `remove_handler(func)`
+
+```python
+removed = client.remove_handler(my_handler)
+```
+
+Remove a previously registered handler function. Returns `True` if the handler was found and removed, `False` otherwise.
+
+---
+
+### `await idle()`
+
+```python
+await client.idle()
+```
+
+Suspends until the client stops. Used internally by `run()`. Call this in async code when you need to keep the event loop alive after calling `await client.start()`.
+
+---
+
+### `reload_plugins()`
+
+```python
+client.reload_plugins()
+```
+
+Removes all plugin-registered handlers and re-imports every plugin file. For development use only — not safe for production.
+
+---
+
+## Instance attributes
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `me` | `pytdbot.types.User` | The authenticated Telegram user/bot object. Populated after login. |
+| `is_authenticated` | `bool` | `True` once the client has completed authorization. |
+| `is_running` | `bool` | `True` while worker tasks are active. |
+| `authorization_state` | `str` | Current TDLib authorization state string (e.g. `"authorizationStateReady"`). Read-only property. |
+| `connection_state` | `str` | Current TDLib connection state string (e.g. `"connectionStateReady"`). |
+| `options` | `dict` | Dictionary of TDLib option values received via `updateOption` events. |
+| `my_id` | `int \| None` | Bot ID extracted from token, or `None` for userbots. |
+
+---
+
+## Sending messages
+
+The methods below are convenience wrappers that build the appropriate `InputMessageContent` and call `sendMessage` internally. All of them honour `default_parse_mode` when `parse_mode` is not passed explicitly.
+
+### `sendTextMessage`
+
+```python
+await client.sendTextMessage(
+    chat_id=chat_id,
+    text="Hello, **world**!",
+    parse_mode="markdownv2",
+)
+```
+
+Send a plain text message. Returns `pytdbot.types.Message` or `pytdbot.types.Error`.
+
+**Signature:**
+
+```python
+async def sendTextMessage(
+    chat_id: int,
+    text: str,
+    entities: list[TextEntity] | None = None,
+    parse_mode: str = None,
+    disable_web_page_preview: bool = False,
+    url: str = None,
+    force_small_media: bool = None,
+    force_large_media: bool = None,
+    show_above_text: bool = None,
+    clear_draft: bool = False,
+    disable_notification: bool = False,
+    protect_content: bool = False,
+    allow_paid_broadcast: bool = False,
+    topic_id: MessageTopic = None,
+    quote: InputTextQuote = None,
+    reply_to: InputMessageReplyTo = None,
+    reply_to_message_id: int = 0,
+    reply_markup: ReplyMarkupInlineKeyboard | ReplyMarkupShowKeyboard | ReplyMarkupForceReply | ReplyMarkupRemoveKeyboard = None,
+) -> Error | Message
+```
+
+---
+
+### `sendPhoto`
+
+Send a photo. `photo` accepts an `InputFile` object, a local path string, or a remote file ID.
+
+```python
+async def sendPhoto(
+    chat_id: int,
+    photo: InputFile | str,
+    thumbnail: InputThumbnail = None,
+    caption: str = None,
+    caption_entities: list = None,
+    parse_mode: str = None,
+    added_sticker_file_ids: list = None,
+    width: int = 0,
+    height: int = 0,
+    self_destruct_type: MessageSelfDestructType = None,
+    disable_notification: bool = False,
+    protect_content: bool = False,
+    allow_paid_broadcast: bool = False,
+    has_spoiler: bool = False,
+    topic_id: MessageTopic = None,
+    quote: InputTextQuote = None,
+    reply_to: InputMessageReplyTo = None,
+    reply_to_message_id: int = 0,
+    reply_markup: ReplyMarkupInlineKeyboard | ReplyMarkupShowKeyboard | ReplyMarkupForceReply | ReplyMarkupRemoveKeyboard = None,
+) -> Error | Message
+```
+
+---
+
+### `sendVideo`
+
+Send a video file.
+
+```python
+async def sendVideo(
+    chat_id: int,
+    video: InputFile | str,
+    thumbnail: InputThumbnail = None,
+    caption: str = None,
+    caption_entities: list = None,
+    parse_mode: str = None,
+    added_sticker_file_ids: list = None,
+    supports_streaming: bool = None,
+    duration: int = 0,
+    width: int = 0,
+    height: int = 0,
+    self_destruct_type: MessageSelfDestructType = None,
+    disable_notification: bool = False,
+    protect_content: bool = False,
+    allow_paid_broadcast: bool = False,
+    has_spoiler: bool = False,
+    topic_id: MessageTopic = None,
+    quote: InputTextQuote = None,
+    reply_to: InputMessageReplyTo = None,
+    reply_to_message_id: int = 0,
+    reply_markup: ReplyMarkupInlineKeyboard | ReplyMarkupShowKeyboard | ReplyMarkupForceReply | ReplyMarkupRemoveKeyboard = None,
+) -> Error | Message
+```
+
+---
+
+### `sendDocument`
+
+Send a file as a document.
+
+```python
+async def sendDocument(
+    chat_id: int,
+    document: InputFile | str,
+    thumbnail: InputThumbnail = None,
+    caption: str = None,
+    caption_entities: list = None,
+    parse_mode: str = None,
+    disable_content_type_detection: bool = True,
+    disable_notification: bool = False,
+    protect_content: bool = False,
+    allow_paid_broadcast: bool = False,
+    topic_id: MessageTopic = None,
+    quote: InputTextQuote = None,
+    reply_to: InputMessageReplyTo = None,
+    reply_to_message_id: int = 0,
+    reply_markup: ReplyMarkupInlineKeyboard | ReplyMarkupShowKeyboard | ReplyMarkupForceReply | ReplyMarkupRemoveKeyboard = None,
+) -> Error | Message
+```
+
+---
+
+### `sendAnimation`
+
+Send a GIF or MPEG4 animation.
+
+```python
+async def sendAnimation(
+    chat_id: int,
+    animation: InputFile | str,
+    thumbnail: InputThumbnail = None,
+    caption: str = None,
+    caption_entities: list = None,
+    parse_mode: str = None,
+    added_sticker_file_ids: list = None,
+    duration: int = 0,
+    width: int = 0,
+    height: int = 0,
+    disable_notification: bool = False,
+    protect_content: bool = False,
+    allow_paid_broadcast: bool = False,
+    has_spoiler: bool = False,
+    topic_id: MessageTopic = None,
+    quote: InputTextQuote = None,
+    reply_to: InputMessageReplyTo = None,
+    reply_to_message_id: int = 0,
+    reply_markup: ReplyMarkupInlineKeyboard | ReplyMarkupShowKeyboard | ReplyMarkupForceReply | ReplyMarkupRemoveKeyboard = None,
+) -> Error | Message
+```
+
+---
+
+### `sendAudio`
+
+Send an audio file (shown in the music player).
+
+```python
+async def sendAudio(
+    chat_id: int,
+    audio: InputFile | str,
+    album_cover_thumbnail: InputThumbnail = None,
+    caption: str = None,
+    caption_entities: list = None,
+    parse_mode: str = None,
+    title: str = None,
+    performer: str = None,
+    duration: int = 0,
+    disable_notification: bool = False,
+    protect_content: bool = False,
+    allow_paid_broadcast: bool = False,
+    topic_id: MessageTopic = None,
+    quote: InputTextQuote = None,
+    reply_to: InputMessageReplyTo = None,
+    reply_to_message_id: int = 0,
+    reply_markup: ReplyMarkupInlineKeyboard | ReplyMarkupShowKeyboard | ReplyMarkupForceReply | ReplyMarkupRemoveKeyboard = None,
+) -> Error | Message
+```
+
+---
+
+### `sendVoice`
+
+Send a voice message (OGG/Opus).
+
+```python
+async def sendVoice(
+    chat_id: int,
+    voice: InputFile | str,
+    caption: str = None,
+    caption_entities: list = None,
+    parse_mode: str = None,
+    duration: int = 0,
+    waveform: bytes = None,
+    disable_notification: bool = False,
+    protect_content: bool = False,
+    allow_paid_broadcast: bool = False,
+    topic_id: MessageTopic = None,
+    quote: InputTextQuote = None,
+    reply_to: InputMessageReplyTo = None,
+    reply_to_message_id: int = 0,
+    reply_markup: ReplyMarkupInlineKeyboard | ReplyMarkupShowKeyboard | ReplyMarkupForceReply | ReplyMarkupRemoveKeyboard = None,
+) -> Error | Message
+```
+
+---
+
+### `editTextMessage`
+
+Edit the text of an existing message.
+
+```python
+async def editTextMessage(
+    chat_id: int,
+    message_id: int,
+    text: str,
+    parse_mode: str = None,
+    entities: list = None,
+    disable_web_page_preview: bool = False,
+    url: str = None,
+    force_small_media: bool = None,
+    force_large_media: bool = None,
+    show_above_text: bool = None,
+    reply_markup: ReplyMarkup = None,
+) -> Error | Message
+```
+
+---
+
+### `parseText`
+
+Parse a string with the given markup mode and return a `FormattedText` object containing the text and its entities. Useful when you need to build formatted text manually before passing it to a TDLib method.
+
+```python
+async def parseText(
+    text: str,
+    parse_mode: str = "html",
+) -> Error | FormattedText
+```
+
+Supported `parse_mode` values: `markdown`, `markdownv2`, `html`.
+
+---
+
+## Low-level access
+
+Use `invoke()` to send any raw TDLib request:
+
+```python
+async with Client(...) as client:
+    result = await client.invoke({"@type": "getMe"})
+    if not isinstance(result, pytdbot.types.Error):
+        print(result)
+```
+
+Or use `call_method()` for keyword-argument style:
+
+```python
+result = await client.call_method("getOption", name="version")
+```

@@ -1,0 +1,161 @@
+---
+title: "Plugins"
+description: "Organize your bot into modular plugins that Pytdbot loads automatically at startup."
+---
+
+Instead of defining all handlers in a single file, you can split your bot's logic into separate plugin modules. Pytdbot discovers and loads these files automatically when `Client` starts.
+
+## The `Plugins` object
+
+```python
+from pytdbot import types
+
+plugins = types.Plugins(
+    folder="plugins",       # directory to scan (relative to your working directory)
+    include=None,           # load only these modules (None = load everything)
+    exclude=None,           # skip these modules (None = skip nothing)
+)
+```
+
+Pass the object to `Client`:
+
+```python
+from pytdbot import Client, types
+
+client = Client(
+    token="BOT_TOKEN",
+    api_id=0,
+    api_hash="API_HASH",
+    database_encryption_key="key",
+    files_directory="BotDB",
+    plugins=types.Plugins(folder="plugins"),
+)
+
+client.run()
+```
+
+`Client` calls `_load_plugins()` during `__init__` and registers every handler it finds.
+
+## Plugin directory structure
+
+```
+my_bot/
+├── main.py
+└── plugins/
+    ├── start.py
+    ├── help.py
+    └── admin/
+        ├── ban.py
+        └── stats.py
+```
+
+Each `.py` file in the tree is a plugin. Subdirectories are supported.
+
+## Writing a plugin file
+
+A plugin file is a plain Python module. When you call a handler decorator without a `Client` instance, it stores a `_handler` attribute on the function. Pytdbot's plugin loader reads that attribute at load time and registers the handler automatically.
+
+```python
+# plugins/echo.py
+from pytdbot import Client, types
+
+@Client.on_message()
+async def echo_handler(c: Client, message: types.Message):
+    if isinstance(message.content, types.MessageText):
+        await message.reply_text(message.text, entities=message.entities)
+```
+
+You can also use a `Filter` as the decorator, which sets both the filter and the `_handler` attribute in one step:
+
+```python
+# plugins/photo_only.py
+from pytdbot import Client, filters, types
+
+filter_photo = filters.create(
+    lambda _, event: event.content_type == "messagePhoto"
+)
+
+@filter_photo
+async def photo_handler(c: Client, message: types.Message):
+    await message.reply_photo(message.remote_file_id)
+```
+
+<Note>
+  Handler functions must be `async`. Pytdbot logs a warning and skips any synchronous function found in a plugin.
+</Note>
+
+## Filtering which plugins to load
+
+Use `include` to load only specific modules. Module names are derived from the file path relative to the `folder` root, with `/` replaced by `.` and the `.py` suffix removed.
+
+```python
+# Load only plugins/rules.py and plugins/admin/ban.py
+plugins = types.Plugins(
+    folder="plugins",
+    include=[
+        "rules",           # -> plugins/rules.py
+        "admin.ban",       # -> plugins/admin/ban.py
+    ],
+)
+```
+
+Use `exclude` to skip specific modules while loading everything else:
+
+```python
+plugins = types.Plugins(
+    folder="plugins",
+    exclude=["admin.stats"],  # skip plugins/admin/stats.py
+)
+```
+
+<Note>
+  `include` and `exclude` are mutually exclusive — if `include` is set, `exclude` is ignored.
+</Note>
+
+## Using filters inside plugins
+
+Use `filters.create()` to build a `Filter`, then pass it to the handler decorator via the `filters=` keyword:
+
+```python
+# plugins/text_only.py
+from pytdbot import Client, filters, types
+
+# Match only text messages
+filter_text = filters.create(
+    lambda _, event: event.content_type == "messageText"
+)
+
+@Client.on_message(filters=filter_text)
+async def text_handler(c: Client, message: types.Message):
+    await message.reply_text(f'You said: "{message.text}"')
+```
+
+Or use a `Filter` object directly as a decorator, which combines filtering and handler registration:
+
+```python
+# plugins/photo_handler.py
+from pytdbot import Client, filters, types
+
+@filters.create
+async def is_photo(_, event) -> bool:
+    return event.content_type == "messagePhoto"
+
+@is_photo
+async def photo_handler(c: Client, message: types.Message):
+    await message.reply_photo(message.remote_file_id)
+```
+
+## Reloading plugins at runtime
+
+`client.reload_plugins()` removes all plugin-registered handlers and re-imports every plugin file. This is intended for development only.
+
+```python
+@client.on_message(filters.command("reload"))
+async def reload_cmd(c: Client, message: types.Message):
+    c.reload_plugins()
+    await message.reply_text("Plugins reloaded.")
+```
+
+<Warning>
+  `reload_plugins()` is for development use only. Do not call it in a production bot — it is not thread-safe and may drop in-flight updates.
+</Warning>

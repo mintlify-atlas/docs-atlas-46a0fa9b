@@ -1,0 +1,155 @@
+---
+title: "Exceptions"
+description: "Pytdbot defines a small set of exceptions for flow control and error handling."
+---
+
+Pytdbot uses Python exceptions sparingly. Most API failures are returned as [`types.Error`](/api/types/overview#the-error-type) objects rather than raised exceptions. The exceptions described here cover flow control inside handlers and authentication failures.
+
+## `StopHandlers`
+
+Stop the handler chain for the current update. When you raise `StopHandlers` inside a handler, no further handlers registered for the same update will be called.
+
+**When to raise it:** Use this in a middleware-style handler that has fully handled an update and wants to prevent lower-priority handlers from running.
+
+```python
+from pytdbot import Client, types
+from pytdbot.exception import StopHandlers
+
+@client.on_message(filters.command("admin"))
+async def admin_guard(c: Client, message: types.Message):
+    user = await message.getUser()
+    if user and user.id not in ADMIN_IDS:
+        await message.reply_text("You are not allowed to use this command.")
+        raise StopHandlers  # no other handler will process this message
+```
+
+<Note>
+  `StopHandlers` does not propagate to the event loop — it is caught internally by the dispatcher. You do not need to handle it yourself.
+</Note>
+
+---
+
+## `AuthorizationError`
+
+Raised when TDLib fails to complete the authorization flow.
+
+**When it is raised:** Pytdbot raises this exception during `client.start()` if the authorization process encounters an unrecoverable error — for example, an invalid phone number, a wrong authentication code, or a rejected bot token.
+
+```python
+from pytdbot import Client
+from pytdbot.exception import AuthorizationError
+
+client = Client(
+    token="INVALID_TOKEN",
+    api_id=0,
+    api_hash="API_HASH",
+    database_encryption_key="key",
+    files_directory="BotDB",
+)
+
+try:
+    await client.start()
+except AuthorizationError as e:
+    print(f"Could not authorize: {e}")
+```
+
+<Warning>
+  Unlike other API errors, authorization failures are raised as Python exceptions rather than returned as `types.Error` objects. Always wrap `client.start()` in a `try/except AuthorizationError` block.
+</Warning>
+
+---
+
+## `WebAppDataInvalid`
+
+Raised when the data received from a Telegram Web App fails basic validation.
+
+**When it is raised:** Call `pytdbot.utils.validate_webapp_data(data, bot_token)` (or the equivalent helper) when processing a Mini App `initData` payload. This exception is raised if the data string is malformed or missing required fields.
+
+```python
+from pytdbot.exception import WebAppDataInvalid
+from pytdbot import utils
+
+@app.post("/webapp")
+async def webapp_handler(request):
+    init_data = request.form.get("initData", "")
+    try:
+        user_data = utils.validate_webapp_data(init_data, bot_token="BOT_TOKEN")
+    except WebAppDataInvalid:
+        return {"error": "Invalid WebApp data"}, 400
+    return {"user_id": user_data["user"]["id"]}
+```
+
+---
+
+## `WebAppDataOutdated`
+
+Raised when valid Web App data is too old to be trusted.
+
+**When it is raised:** The `auth_date` field in the `initData` payload is older than the allowed threshold. Reject outdated payloads to prevent replay attacks.
+
+```python
+from pytdbot.exception import WebAppDataInvalid, WebAppDataOutdated
+from pytdbot import utils
+
+try:
+    user_data = utils.validate_webapp_data(init_data, bot_token="BOT_TOKEN")
+except WebAppDataOutdated:
+    return {"error": "Session expired. Please reopen the app."}, 401
+except WebAppDataInvalid:
+    return {"error": "Invalid data"}, 400
+```
+
+---
+
+## `WebAppDataMismatch`
+
+Raised when the HMAC hash in the Web App `initData` does not match the expected value computed from the bot token.
+
+**When it is raised:** Pytdbot raises this when `validate_webapp_data` detects that the `hash` field in the payload was not generated with the correct bot token. This typically indicates a tampered or forged request.
+
+```python
+from pytdbot.exception import WebAppDataMismatch
+from pytdbot import utils
+
+try:
+    user_data = utils.validate_webapp_data(init_data, bot_token="BOT_TOKEN")
+except WebAppDataMismatch:
+    return {"error": "Data integrity check failed"}, 403
+```
+
+---
+
+## TDLib `Error` vs Python exceptions
+
+Pytdbot follows a consistent pattern: **TDLib API errors are returned as values, not raised as exceptions.**
+
+| Situation | Mechanism |
+|-----------|-----------|
+| API call fails (e.g., message not found, flood wait) | Returns `types.Error` |
+| Authorization fails during `client.start()` | Raises `AuthorizationError` |
+| Handler should stop propagating | Raise `StopHandlers` |
+| Web App `initData` is malformed | Raises `WebAppDataInvalid` |
+| Web App `initData` is outdated | Raises `WebAppDataOutdated` |
+| Web App `initData` hash mismatch | Raises `WebAppDataMismatch` |
+
+Check for `types.Error` after every API call:
+
+```python
+result = await client.sendTextMessage(chat_id=chat_id, text="Hello")
+
+if isinstance(result, types.Error):
+    if result.code == 429:
+        import asyncio
+        await asyncio.sleep(result.limited_seconds)
+    else:
+        print(f"Failed: {result.code} — {result.message}")
+else:
+    print(f"Sent: message ID {result.id}")
+```
+
+Or use the truthy shorthand (because `TlObject.__bool__` returns `False` for errors):
+
+```python
+if not result:
+    print(f"Error {result.code}: {result.message}")
+```

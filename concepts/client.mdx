@@ -1,0 +1,195 @@
+---
+title: "The Client"
+description: "The Client class is the central object in Pytdbot — it manages the TDLib connection, authentication, and update dispatch."
+---
+
+## Overview
+
+`Client` is the entry point to every Pytdbot application. It inherits from two mixin classes:
+
+- **`Decorators`** — provides all `@client.on_*()` handler registration decorators.
+- **`Methods`** — provides every TDLib API method (e.g. `sendTextMessage`, `getChat`, `banChatMember`).
+
+```python
+from pytdbot import Client
+```
+
+When you instantiate `Client`, Pytdbot does not connect to Telegram yet. The connection is established when you call `client.run()` or `await client.start()`.
+
+---
+
+## Constructor parameters
+
+<ParamField path="token" type="str" optional>
+  Bot token obtained from [@BotFather](https://t.me/BotFather). Omit for user-bot mode.
+</ParamField>
+
+<ParamField path="api_id" type="int" optional>
+  Telegram API identifier obtained from [my.telegram.org](https://my.telegram.org).
+</ParamField>
+
+<ParamField path="api_hash" type="str" optional>
+  Telegram API hash obtained from [my.telegram.org](https://my.telegram.org).
+</ParamField>
+
+<ParamField path="files_directory" type="str" optional>
+  Directory where TDLib stores its database and downloaded files.
+</ParamField>
+
+<ParamField path="database_encryption_key" type="str | bytes">
+  Encryption key used to encrypt the TDLib database on disk.
+</ParamField>
+
+<ParamField path="plugins" type="Plugins" optional>
+  A `Plugins` instance that tells Pytdbot which plugin modules to load at startup. See [Plugins guide](/guides/plugins).
+</ParamField>
+
+<ParamField path="default_parse_mode" type="str" optional>
+  Default parse mode applied to send/edit methods that accept formatted text. Accepted values: `"markdown"`, `"markdownv2"`, `"html"`. Default: `None` (no parsing).
+</ParamField>
+
+<ParamField path="workers" type="int" optional>
+  Number of concurrent update worker tasks. Default: `5`. Pass `None` to process updates immediately without queuing (may impact performance under load).
+</ParamField>
+
+<ParamField path="td_verbosity" type="int" optional>
+  TDLib verbosity level (0 = silent, 5 = maximum debug output). Default: `2`.
+</ParamField>
+
+<ParamField path="td_log" type="LogStream" optional>
+  TDLib log destination. Pass a `types.LogStreamFile` to write logs to a file. Default: `None` (log to stdout).
+</ParamField>
+
+<ParamField path="user_bot" type="bool" optional>
+  Set to `True` when running as a user account rather than a bot. Default: `False`.
+</ParamField>
+
+<ParamField path="rabbitmq_url" type="str" optional>
+  Connection URL for a RabbitMQ server. Used for horizontal scaling via [TDLib Server](https://github.com/pytdbot/tdlib-server).
+</ParamField>
+
+<ParamField path="default_handlers_timeout" type="float" optional>
+  Default timeout in seconds applied to every handler that does not set its own `timeout`. Default: `None` (no timeout).
+</ParamField>
+
+---
+
+## Minimal instantiation
+
+```python bot.py
+from pytdbot import Client, types
+
+client = Client(
+    token="1088394097:AAQX2DnWiw4ihwiJUhIHOGog8gGOI",
+    api_id=12345,
+    api_hash="your_api_hash",
+    files_directory="BotDB",
+    database_encryption_key="1234echobot$",
+    td_verbosity=2,
+    td_log=types.LogStreamFile(
+        path="tdlib.log", max_file_size=104857600
+    ),
+)
+```
+
+---
+
+## Starting and stopping
+
+### `client.run()`
+
+The simplest way to start a bot. Calls `start()` and then blocks the current thread until the client is stopped (e.g. by a `SIGINT` or `SIGTERM` signal).
+
+```python
+client.run()
+```
+
+Use this at the end of a script. It registers OS signal handlers for you so that `Ctrl+C` cleanly stops the client.
+
+### `await client.start()` / `await client.stop()`
+
+Use these inside an existing async context when you need manual control over the lifecycle:
+
+```python
+import asyncio
+from pytdbot import Client
+
+async def main():
+    client = Client(
+        token="YOUR_BOT_TOKEN",
+        api_id=12345,
+        api_hash="YOUR_API_HASH",
+        files_directory="BotDB",
+        database_encryption_key="secret",
+    )
+    await client.start()
+    # ... do work ...
+    await client.stop()
+
+asyncio.run(main())
+```
+
+### Async context manager
+
+`Client` implements `__aenter__` / `__aexit__`, so you can use it as an async context manager:
+
+```python
+async with Client(
+    token="YOUR_BOT_TOKEN",
+    api_id=12345,
+    api_hash="YOUR_API_HASH",
+    files_directory="BotDB",
+    database_encryption_key="secret",
+) as client:
+    res = await client.invoke({"@type": "getOption", "name": "version"})
+    print(res)
+```
+
+`stop()` is called automatically when the block exits, even if an exception is raised.
+
+---
+
+## Key attributes
+
+| Attribute | Type | Description |
+|---|---|---|
+| `client.me` | `types.User \| None` | The authenticated user or bot. Populated after login. |
+| `client.is_authenticated` | `bool` | `True` once the client has successfully logged in. |
+| `client.is_running` | `bool \| None` | `True` while the client event loop is active. |
+| `client.connection_state` | `str \| None` | Current TDLib connection state (e.g. `"connectionStateReady"`). |
+| `client.authorization_state` | `str \| None` | Current TDLib authorization state. Read-only property. |
+
+<Note>
+  `client.me` is `None` until authentication completes. Do not access it during the module import phase or inside `__init__` of a plugin.
+</Note>
+
+---
+
+## Full example
+
+```python bot.py
+import logging
+
+from pytdbot import Client, types
+
+logging.basicConfig(level=logging.INFO)
+
+client = Client(
+    token="1088394097:AAQX2DnWiw4ihwiJUhIHOGog8gGOI",
+    api_id=12345,
+    api_hash="your_api_hash",
+    files_directory="BotDB",
+    database_encryption_key="1234echobot$",
+    td_verbosity=2,
+    td_log=types.LogStreamFile(path="tdlib.log", max_file_size=104857600),
+)
+
+
+@client.on_message()
+async def echo(_: Client, message: types.Message):
+    if isinstance(message.content, types.MessageText):
+        await message.reply_text(message.text, entities=message.entities)
+
+
+client.run()
+```

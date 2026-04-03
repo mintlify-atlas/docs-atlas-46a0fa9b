@@ -1,0 +1,246 @@
+---
+title: "Types"
+description: "Pytdbot exposes the full TDLib type system as well-typed Python classes, with extra bound methods for common operations."
+---
+
+## Overview
+
+`pytdbot.types` contains Python classes for every type defined in TDLib's type language (TL). When TDLib returns data — a message, a user, a chat — Pytdbot deserializes it into one of these typed objects so you get full editor autocompletion and type checking.
+
+```python
+from pytdbot import types
+# or
+from pytdbot import Client, types
+```
+
+---
+
+## `TlObject` base class
+
+Every type in `pytdbot.types` ultimately inherits from `TlObject`. This base class provides the common scaffolding for serialization, deserialization, and the `getType()` class method that returns the TDLib type string.
+
+```python
+from pytdbot import types
+
+# The @type string for a class
+print(types.Message.getType())  # "message"
+```
+
+---
+
+## Working with types
+
+Types are received as handler arguments. You do not construct most of them manually — TDLib populates them from incoming updates.
+
+```python
+@client.on_message()
+async def handler(_: Client, message: types.Message):
+    # message is a pytdbot.types.Message instance
+    print(message.chat_id)
+    print(message.id)
+    print(message.content)   # a MessageContent subtype
+```
+
+To inspect the content type, use `isinstance()`:
+
+```python
+@client.on_message()
+async def handler(_: Client, message: types.Message):
+    if isinstance(message.content, types.MessageText):
+        print(message.text)  # convenience property from bound methods
+    elif isinstance(message.content, types.MessagePhoto):
+        print(message.remote_file_id)
+```
+
+---
+
+## Bound methods
+
+Pytdbot adds extra Python methods directly onto select TDLib types. These "bound methods" are convenience shortcuts that call the corresponding `Client` method with the correct `chat_id` and `message_id` filled in automatically.
+
+The `Message` type has the richest set of bound methods:
+
+### Sending replies
+
+| Method | Description |
+|---|---|
+| `message.reply_text(text, ...)` | Reply with a text message. |
+| `message.reply_photo(file_id, ...)` | Reply with a photo. |
+| `message.reply_animation(file_id, ...)` | Reply with an animation (GIF). |
+| `message.reply_audio(file_id, ...)` | Reply with an audio file. |
+| `message.reply_document(file_id, ...)` | Reply with a document. |
+| `message.reply_video(file_id, ...)` | Reply with a video. |
+| `message.reply_voice(file_id, ...)` | Reply with a voice note. |
+| `message.reply_sticker(file_id, ...)` | Reply with a sticker. |
+
+### Editing and moderation
+
+| Method | Description |
+|---|---|
+| `message.edit_text(text, ...)` | Edit the message text. |
+| `message.delete(revoke=True)` | Delete the message. |
+| `message.pin(...)` | Pin the message in its chat. |
+| `message.unpin()` | Unpin the message. |
+| `message.react(emoji, ...)` | Add a reaction to the message. |
+| `message.ban(banned_until_date)` | Ban the message sender. |
+| `message.kick()` | Kick the message sender. |
+| `message.restrict(permissions, ...)` | Restrict the message sender. |
+
+### Fetching related data
+
+| Method | Description |
+|---|---|
+| `message.getChat()` | Fetch the chat this message belongs to. |
+| `message.getUser()` | Fetch the user who sent the message. |
+| `message.getChatMember()` | Fetch sender's membership in the chat. |
+| `message.getRepliedMessage()` | Fetch the message this one replies to. |
+| `message.getMessageLink(...)` | Get a shareable link to the message. |
+| `message.download(...)` | Download the attached media file. |
+
+### Chat actions
+
+`message.action()` sends a chat action (typing indicator) and supports use as an async context manager:
+
+```python
+@client.on_message()
+async def handler(_: Client, message: types.Message):
+    async with message.action("typing"):
+        # TDLib keeps sending "typing..." while this block runs
+        await asyncio.sleep(2)
+    await message.reply_text("Done thinking!")
+```
+
+### Convenience properties
+
+Bound methods also add computed properties to `Message`:
+
+| Property | Type | Description |
+|---|---|---|
+| `message.text` | `str` | Text of a `MessageText` content, or `""`. |
+| `message.caption` | `str \| None` | Caption for media messages. |
+| `message.entities` | `list[TextEntity] \| None` | Text entities (bold, links, etc.). |
+| `message.from_id` | `int \| None` | Sender's user or chat ID. |
+| `message.reply_to_message_id` | `int` | ID of the replied-to message, if any. |
+| `message.remote_file_id` | `str \| None` | Remote file ID of the attached media. |
+| `message.remote_unique_file_id` | `str \| None` | Unique remote file ID. |
+
+---
+
+## Echo bot example
+
+The echobot from `examples/echobot.py` shows bound methods in practice:
+
+```python echobot.py
+from pytdbot import Client, types
+
+client = Client(
+    token="1088394097:AAQX2DnWiw4ihwiJUhIHOGog8gGOI",
+    api_id=0,
+    api_hash="API_HASH",
+    files_directory="BotDB",
+    database_encryption_key="1234echobot$",
+    td_verbosity=2,
+    td_log=types.LogStreamFile(path="tdlib.log", max_file_size=104857600),
+)
+
+
+@client.on_message()
+async def echo(_: Client, message: types.Message):
+    if isinstance(message.content, types.MessageText):
+        await message.reply_text(message.text, entities=message.entities)
+
+    elif isinstance(message.content, types.MessagePhoto):
+        await message.reply_photo(
+            message.remote_file_id,
+            caption=message.caption,
+            caption_entities=message.caption_entities,
+        )
+
+    elif isinstance(message.content, types.MessageVideo):
+        await message.reply_video(
+            message.remote_file_id,
+            caption=message.caption,
+            caption_entities=message.entities,
+        )
+    else:
+        await message.reply_text("Oops! i don't know how to handle this message.")
+
+
+client.run()
+```
+
+---
+
+## Commonly used types
+
+| Type | Description |
+|---|---|
+| `types.Message` | A Telegram message with all its content and metadata. |
+| `types.UpdateNewMessage` | TDLib update wrapping a new incoming or outgoing message. |
+| `types.User` | A Telegram user (including bots). `client.me` is a `User`. |
+| `types.Chat` | A Telegram chat (private, group, supergroup, or channel). |
+| `types.FormattedText` | Text with a list of `TextEntity` formatting entities. |
+| `types.LogStreamFile` | TDLib log stream that writes to a file. |
+| `types.Plugins` | Specifies which plugin folder and modules to load. |
+| `types.ReplyMarkupInlineKeyboard` | Inline keyboard markup. |
+| `types.ReplyMarkupShowKeyboard` | Reply keyboard markup. |
+| `types.ReplyMarkupForceReply` | Force-reply markup. |
+| `types.ReplyMarkupRemoveKeyboard` | Remove keyboard markup. |
+| `types.Error` | Returned by TDLib methods when the request fails. |
+
+---
+
+## The `Error` type
+
+TDLib methods do not raise exceptions for API-level failures. Instead they return a `types.Error` object. Always check the return value before using the result.
+
+```python
+result = await client.getChat(chat_id=some_id)
+
+if isinstance(result, types.Error):
+    print(f"TDLib error {result.code}: {result.message}")
+else:
+    print(result.title)  # safe to access Chat fields
+```
+
+`types.Error` has two fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `error.code` | `int` | TDLib error code. |
+| `error.message` | `str` | Human-readable error description. |
+
+<Tip>
+  The same pattern applies to bound methods. `message.reply_text()` returns either a `types.Message` (the sent message) or a `types.Error`.
+</Tip>
+
+---
+
+## Constructing types manually
+
+Some types are constructed manually when calling API methods that require them, for example when specifying a log stream or plugins:
+
+```python
+client = Client(
+    ...
+    td_log=types.LogStreamFile(path="tdlib.log", max_file_size=104857600),
+    plugins=types.Plugins(folder="plugins"),
+)
+```
+
+Or when building a reply markup:
+
+```python
+from pytdbot import types
+
+keyboard = types.ReplyMarkupInlineKeyboard(
+    rows=[
+        [
+            types.InlineKeyboardButton(
+                text="Click me",
+                type=types.InlineKeyboardButtonTypeUrl(url="https://example.com"),
+            )
+        ]
+    ]
+)
+```

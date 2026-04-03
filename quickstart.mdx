@@ -1,80 +1,172 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: "Quick start"
+description: "Build your first Telegram bot with Pytdbot in under 5 minutes."
 ---
 
-## Get started in three steps
+<Steps>
+  <Step title="Get Telegram API credentials">
+    Go to [my.telegram.org/apps](https://my.telegram.org/apps) and sign in with your Telegram account.
+    Create a new application to receive your `api_id` (an integer) and `api_hash` (a string).
+    You will need both when initializing the `Client`.
+  </Step>
 
-Get your documentation site running locally and make your first customization.
+  <Step title="Get a bot token from @BotFather">
+    Open Telegram and start a chat with [@BotFather](https://t.me/BotFather).
+    Send `/newbot`, follow the prompts, and copy the bot token it returns.
+    The token looks like `1088394097:AAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`.
+  </Step>
 
-### Step 1: Set up your local environment
+  <Step title="Install Pytdbot">
+    Install Pytdbot with the bundled TDLib binary:
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+    ```bash
+    pip install pytdbot[tdjson]
+    ```
 
-### Step 2: Deploy your changes
+    This pulls in the `tdjson` wheel which includes a pre-built TDLib shared library.
+    See [Installation](/installation) if the wheel is not available for your platform.
+  </Step>
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+  <Step title="Write your first bot">
+    Create a file called `bot.py` and paste the following echo bot:
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+    ```python bot.py
+    import logging
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+    from pytdbot import Client, types
 
-### Step 3: Go live
+    logging.basicConfig(
+        level=logging.INFO,
+        format="[%(levelname)s][p %(process)d %(threadName)s][%(created)f][%(filename)s:%(lineno)d][%(funcName)s]  %(message)s",
+    )
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+
+    client = Client(
+        token="YOUR_BOT_TOKEN",
+        api_id=0,               # Replace with your api_id
+        api_hash="YOUR_API_HASH",
+        files_directory="BotDB",
+        database_encryption_key="1234echobot$",
+        td_verbosity=2,
+        td_log=types.LogStreamFile(
+            path="tdlib.log", max_file_size=104857600
+        ),
+    )
+
+
+    @client.on_updateNewMessage()
+    async def print_message(_: Client, message: types.Message):
+        print(message)
+
+
+    @client.on_message()
+    async def echo(_: Client, message: types.Message):
+        if isinstance(message.content, types.MessageText):
+            await message.reply_text(message.text, entities=message.entities)
+
+        elif isinstance(message.content, types.MessageAnimation):
+            await message.reply_animation(
+                message.remote_file_id,
+                caption=message.caption,
+                caption_entities=message.entities,
+            )
+
+        elif isinstance(message.content, types.MessageAudio):
+            await message.reply_audio(
+                message.remote_file_id,
+                caption=message.caption,
+                caption_entities=message.entities,
+            )
+
+        elif isinstance(message.content, types.MessageDocument):
+            await message.reply_document(
+                message.remote_file_id,
+                caption=message.caption,
+                caption_entities=message.entities,
+            )
+
+        elif isinstance(message.content, types.MessagePhoto):
+            await message.reply_photo(
+                message.remote_file_id,
+                caption=message.caption,
+                caption_entities=message.entities,
+            )
+
+        elif isinstance(message.content, types.MessageSticker):
+            await message.reply_sticker(message.remote_file_id)
+
+        elif isinstance(message.content, types.MessageVideo):
+            await message.reply_video(
+                message.remote_file_id,
+                caption=message.caption,
+                caption_entities=message.entities,
+            )
+
+        elif isinstance(message.content, types.MessageVoiceNote):
+            await message.reply_voice(
+                message.remote_file_id,
+                caption=message.caption,
+                caption_entities=message.entities,
+            )
+        else:
+            await message.reply_text("Oops! i don't know how to handle this message.")
+
+
+    # Run the client
+    client.run()
+    ```
+  </Step>
+
+  <Step title="Run the bot">
+    ```bash
+    python bot.py
+    ```
+
+    Pytdbot will authenticate with Telegram, and your bot will start responding to messages.
+    Send any message to your bot and it will echo it back.
+  </Step>
+</Steps>
+
+---
+
+## `on_message()` vs `on_updateNewMessage()`
+
+Pytdbot exposes two different decorator patterns for incoming messages:
+
+- **`@client.on_updateNewMessage()`** — fires for the raw TDLib `UpdateNewMessage` object.
+  Use this when you need access to the full update envelope, including metadata that wraps the message.
+
+- **`@client.on_message()`** — fires for the unwrapped `Message` object extracted from the update.
+  This is the higher-level handler and the one you should use in most cases.
+
+Both can be registered at the same time; they run independently and in the order they are registered.
+
+<Note>
+  In the echo bot above, `on_updateNewMessage()` is used only to print the raw update for debugging.
+  The actual reply logic lives in `on_message()`.
+</Note>
+
+---
+
+<Tip>
+  Install [orjson](https://github.com/ijl/orjson) or [ujson](https://github.com/ultrajson/ultrajson) for faster JSON serialization:
+
+  ```bash
+  pip install pytdbot[tdjson] orjson
+  ```
+
+  Pytdbot detects either library automatically at startup and uses it in place of the standard `json` module.
+</Tip>
+
+---
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
-
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Handlers" icon="bolt" href="/concepts/handlers">
+    Learn how to register handlers for any TDLib update type.
+  </Card>
+  <Card title="Filters" icon="filter" href="/concepts/filters">
+    Narrow down which messages trigger your handlers using built-in filters.
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>

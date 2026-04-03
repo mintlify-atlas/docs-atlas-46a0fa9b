@@ -1,0 +1,198 @@
+---
+title: "Filters"
+description: "Filters let you conditionally route updates to specific handlers based on message content, sender, or any custom logic."
+---
+
+## Overview
+
+A filter is a callable wrapped in a `Filter` object. When a handler has a filter attached, Pytdbot calls the filter before invoking the handler. If the filter returns `True`, the handler runs. If it returns `False`, Pytdbot skips that handler and continues to the next one in the chain.
+
+Filters receive two arguments:
+
+| Argument | Type | Description |
+|---|---|---|
+| `_` | `Client` | The running client instance. |
+| `event` | TDLib type | The update or inner object passed to the handler. |
+
+---
+
+## Creating filters
+
+Use `filters.create()` to wrap a callable into a `Filter`. There are three equivalent ways to do this.
+
+### As a decorator
+
+```python
+from pytdbot import filters
+
+@filters.create
+async def filter_photo(_, event) -> bool:
+    return event.content_type == "messagePhoto"
+```
+
+### As a function call
+
+```python
+from pytdbot import filters
+
+async def _filter_photo(_, event) -> bool:
+    return event.content_type == "messagePhoto"
+
+filter_photo = filters.create(_filter_photo)
+```
+
+### As a lambda
+
+```python
+from pytdbot import filters
+
+filter_photo = filters.create(
+    lambda _, event: event.content_type == "messagePhoto"
+)
+```
+
+All three produce an identical `Filter` object.
+
+---
+
+## Attaching a filter to a handler
+
+Pass the filter to the `filters=` keyword argument on any handler decorator:
+
+```python
+from pytdbot import Client, filters, types
+
+filter_photo = filters.create(
+    lambda _, event: event.content_type == "messagePhoto"
+)
+
+
+@client.on_message(filters=filter_photo)
+async def photo_handler(_: Client, message: types.Message):
+    await message.reply_text("I got a photo!")
+```
+
+The same `filters=` parameter is available on `on_updateNewMessage()`, `initializer()`, `finalizer()`, and all other update decorators.
+
+---
+
+## Sync and async filters
+
+The filter function can be either sync or async. Pytdbot detects this automatically using `asyncio.iscoroutinefunction` and awaits async filters.
+
+```python
+# Sync filter — no await needed
+filter_private = filters.create(
+    lambda _, event: event.chat_id > 0
+)
+
+# Async filter — can call awaitable APIs
+@filters.create
+async def filter_admin(client: Client, event) -> bool:
+    member = await event.getChatMember()
+    if isinstance(member, types.Error):
+        return False
+    return isinstance(
+        member.status,
+        (types.ChatMemberStatusAdministrator, types.ChatMemberStatusCreator),
+    )
+```
+
+---
+
+## Combining filters
+
+Because `Filter` is a plain Python class, you can compose filters using standard Python operators.
+
+<Note>
+  The `Filter` class does not override `__and__` or `__or__` out of the box. Compose filters with `filters.create` and a lambda or async function that calls both:
+</Note>
+
+```python
+from pytdbot import filters
+
+filter_photo = filters.create(
+    lambda _, event: event.content_type == "messagePhoto"
+)
+
+filter_private = filters.create(
+    lambda _, event: event.chat_id > 0
+)
+
+# AND composition
+filter_private_photo = filters.create(
+    lambda c, event: (
+        event.content_type == "messagePhoto"
+        and event.chat_id > 0
+    )
+)
+
+# OR composition
+filter_photo_or_video = filters.create(
+    lambda _, event: event.content_type in ("messagePhoto", "messageVideo")
+)
+```
+
+---
+
+## Complete example
+
+```python
+import logging
+
+from pytdbot import Client, filters, types
+
+logging.basicConfig(level=logging.INFO)
+
+client = Client(
+    token="1088394097:AAQX2DnWiw4ihwiJUhIHOGog8gGOI",
+    api_id=12345,
+    api_hash="your_api_hash",
+    files_directory="BotDB",
+    database_encryption_key="1234echobot$",
+)
+
+# Match only text messages
+filter_text = filters.create(
+    lambda _, event: event.content_type == "messageText"
+)
+
+# Match only photo messages
+filter_photo = filters.create(
+    lambda _, event: event.content_type == "messagePhoto"
+)
+
+
+@client.on_message(filters=filter_text)
+async def echo_text(_: Client, message: types.Message):
+    await message.reply_text(message.text, entities=message.entities)
+
+
+@client.on_message(filters=filter_photo)
+async def echo_photo(_: Client, message: types.Message):
+    await message.reply_photo(
+        message.remote_file_id,
+        caption=message.caption,
+        caption_entities=message.caption_entities,
+    )
+
+
+client.run()
+```
+
+---
+
+## The `Filter` class
+
+The `Filter` class lives in `pytdbot.filters`:
+
+```python
+from pytdbot.filters import Filter, create
+```
+
+| Symbol | Description |
+|---|---|
+| `Filter` | Base class. Wraps a callable. Instantiate via `create()`. |
+| `create(func)` | Factory function. Returns a `Filter` wrapping `func`. |
+
+You can also use `Filter` directly as a decorator for handler registration — when the first argument to a decorator is a `Filter` instance, Pytdbot uses it as the filter and registers the handler without a client instance (useful in plugins).

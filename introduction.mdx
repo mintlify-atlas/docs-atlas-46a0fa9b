@@ -1,0 +1,61 @@
+---
+title: "Introduction"
+description: "Pytdbot is an easy-to-use asynchronous Python wrapper for TDLib that lets you build Telegram bots and user clients with minimal boilerplate."
+---
+
+## What is Pytdbot?
+
+Pytdbot gives you a clean, decorator-based API on top of [TDLib](https://github.com/tdlib/td) — Telegram's official cross-platform library. Instead of managing raw JSON updates and low-level TDLib calls, you write idiomatic async Python.
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Build your first Telegram bot in under 5 minutes
+  </Card>
+  <Card title="Installation" icon="download" href="/installation">
+    Install Pytdbot and set up TDLib
+  </Card>
+  <Card title="Core Concepts" icon="book" href="/concepts/client">
+    Understand Client, handlers, filters, and types
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/client">
+    Full reference for every class and method
+  </Card>
+</CardGroup>
+
+## Key features
+
+<CardGroup cols={2}>
+  <Card title="Fully async" icon="bolt">
+    Built on Python asyncio — non-blocking by design, ready for high-throughput workloads.
+  </Card>
+  <Card title="Decorator-based handlers" icon="tag">
+    Register update handlers with a single decorator — `@client.on_message()`, `@client.on_updateNewMessage()`, and more.
+  </Card>
+  <Card title="Bound methods on types" icon="link">
+    TDLib types like `Message` ship with ergonomic helpers: `message.reply_text()`, `message.edit_text()`, `message.action()`.
+  </Card>
+  <Card title="Plugin system" icon="puzzle-piece">
+    Split your bot into separate modules loaded automatically at startup.
+  </Card>
+  <Card title="Filter system" icon="filter">
+    Compose filters to route updates to the right handler — by content type, sender, text patterns, and more.
+  </Card>
+  <Card title="Horizontal scaling" icon="server">
+    Use RabbitMQ and [TDLib Server](https://github.com/pytdbot/tdlib-server) to run multiple instances behind a single TDLib connection.
+  </Card>
+</CardGroup>
+
+## Supported modes
+
+Pytdbot works for both **bots** (authenticated with a bot token) and **user accounts** (authenticated with a phone number). The same API surface covers both modes — just pass `user_bot=True` to `Client` when running as a user account.
+
+## Requirements
+
+- Python 3.10 or later
+- A [Telegram API key](https://my.telegram.org/apps) (`api_id` and `api_hash`)
+- A bot token from [@BotFather](https://t.me/BotFather), or a Telegram account for user-bot mode
+- TDLib shared library (included automatically when installing with `pytdbot[tdjson]`)
+
+## License
+
+Pytdbot is released under the [MIT License](https://github.com/pytdbot/client/blob/main/LICENSE).

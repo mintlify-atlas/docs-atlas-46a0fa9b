@@ -1,0 +1,324 @@
+---
+title: "Sending messages"
+description: "Send text, photos, videos, documents, and other media using Pytdbot's high-level methods."
+---
+
+Pytdbot provides a set of high-level `send*` methods on the `Client` object. Every method returns either a `Message` on success or an `Error` object on failure — check the return type before using the result.
+
+You can pass a `default_parse_mode` to `Client` so you don't have to repeat it on every call:
+
+```python
+from pytdbot import Client
+
+client = Client(
+    token="BOT_TOKEN",
+    api_id=0,
+    api_hash="API_HASH",
+    database_encryption_key="key",
+    files_directory="BotDB",
+    default_parse_mode="html",  # applied to all send* calls
+)
+```
+
+## Sending by media type
+
+<Tabs>
+  <Tab title="Text">
+    ```python
+    msg = await client.sendTextMessage(
+        chat_id=chat_id,
+        text="<b>Hello</b>, world!",
+        parse_mode="html",
+    )
+    ```
+
+    Disable the link preview:
+
+    ```python
+    await client.sendTextMessage(
+        chat_id=chat_id,
+        text="Check https://example.com",
+        disable_web_page_preview=True,
+    )
+    ```
+  </Tab>
+  <Tab title="Photo">
+    Pass a remote file ID string or an `InputFile` object:
+
+    ```python
+    from pytdbot import types
+
+    # By remote file ID
+    await client.sendPhoto(
+        chat_id=chat_id,
+        photo="AgACAgIAAxk...",
+        caption="A caption",
+        parse_mode="html",
+    )
+
+    # From a local path
+    await client.sendPhoto(
+        chat_id=chat_id,
+        photo=types.InputFileLocal(path="/tmp/image.jpg"),
+        caption="Uploaded from disk",
+    )
+    ```
+  </Tab>
+  <Tab title="Video">
+    ```python
+    await client.sendVideo(
+        chat_id=chat_id,
+        video="BAACAgIAAxk...",
+        caption="Watch this",
+        duration=30,
+        width=1280,
+        height=720,
+        supports_streaming=True,
+    )
+    ```
+  </Tab>
+  <Tab title="Audio">
+    ```python
+    await client.sendAudio(
+        chat_id=chat_id,
+        audio="CQACAgIAAxk...",
+        title="My Track",
+        performer="Artist",
+        duration=180,
+        caption="Enjoy",
+    )
+    ```
+  </Tab>
+  <Tab title="Document">
+    ```python
+    await client.sendDocument(
+        chat_id=chat_id,
+        document=types.InputFileLocal(path="/tmp/report.pdf"),
+        caption="Monthly report",
+    )
+    ```
+  </Tab>
+  <Tab title="Animation">
+    ```python
+    await client.sendAnimation(
+        chat_id=chat_id,
+        animation="CgACAgIAAxk...",
+        caption="Look at this GIF",
+        duration=3,
+        width=480,
+        height=270,
+    )
+    ```
+  </Tab>
+  <Tab title="Voice">
+    ```python
+    await client.sendVoice(
+        chat_id=chat_id,
+        voice=types.InputFileLocal(path="/tmp/note.ogg"),
+        duration=5,
+    )
+    ```
+  </Tab>
+  <Tab title="Sticker">
+    ```python
+    await client.sendSticker(
+        chat_id=chat_id,
+        sticker="CAACAgIAAxk...",
+        emoji="😄",
+    )
+    ```
+  </Tab>
+</Tabs>
+
+## Parse mode
+
+Three parse modes are supported. Pass the mode per-call or set `default_parse_mode` on `Client`.
+
+| Value          | Description                            |
+| -------------- | -------------------------------------- |
+| `"html"`       | HTML tags: `<b>`, `<i>`, `<code>`, etc. |
+| `"markdown"`   | Markdown v1                            |
+| `"markdownv2"` | Markdown v2 (MarkdownV2 spec)          |
+
+```python
+# HTML
+await client.sendTextMessage(chat_id, "<b>Bold</b> and <i>italic</i>", parse_mode="html")
+
+# Markdown v2
+await client.sendTextMessage(chat_id, r"*Bold* and _italic_", parse_mode="markdownv2")
+```
+
+<Note>
+  If you need fine-grained control over entities, pass a list of `TextEntity` objects via the `entities` parameter instead of using `parse_mode`.
+</Note>
+
+## Replying to a message
+
+Pass `reply_to_message_id` to set which message the bot is replying to:
+
+```python
+await client.sendTextMessage(
+    chat_id=message.chat_id,
+    text="Got it!",
+    reply_to_message_id=message.id,
+)
+```
+
+## Silent messages
+
+Pass `disable_notification=True` to send without triggering a notification:
+
+```python
+await client.sendTextMessage(
+    chat_id=chat_id,
+    text="Maintenance window starts in 5 minutes.",
+    disable_notification=True,
+)
+```
+
+## Reply markup
+
+### Inline keyboard
+
+```python
+from pytdbot import types
+
+await client.sendTextMessage(
+    chat_id=chat_id,
+    text="Choose an option:",
+    reply_markup=types.ReplyMarkupInlineKeyboard(
+        rows=[
+            [
+                types.InlineKeyboardButton(
+                    text="Visit GitHub",
+                    type=types.InlineKeyboardButtonTypeUrl(
+                        url="https://github.com/pytdbot/client"
+                    ),
+                ),
+                types.InlineKeyboardButton(
+                    text="Press me",
+                    type=types.InlineKeyboardButtonTypeCallback(data=b"button_1"),
+                ),
+            ]
+        ]
+    ),
+)
+```
+
+Handle the callback query:
+
+```python
+@client.on_updateNewCallbackQuery()
+async def on_callback(c: Client, query: types.UpdateNewCallbackQuery):
+    if query.payload.data == b"button_1":
+        await c.editTextMessage(
+            query.chat_id,
+            query.message_id,
+            "You pressed the button!",
+        )
+```
+
+### Reply keyboard
+
+```python
+await client.sendTextMessage(
+    chat_id=chat_id,
+    text="Pick one:",
+    reply_markup=types.ReplyMarkupShowKeyboard(
+        rows=[
+            [
+                types.KeyboardButton(text="Option A", type=types.KeyboardButtonTypeText()),
+                types.KeyboardButton(text="Option B", type=types.KeyboardButtonTypeText()),
+            ]
+        ],
+        one_time=True,
+        resize_keyboard=True,
+    ),
+)
+```
+
+### Remove keyboard
+
+```python
+await client.sendTextMessage(
+    chat_id=chat_id,
+    text="Keyboard removed.",
+    reply_markup=types.ReplyMarkupRemoveKeyboard(),
+)
+```
+
+### Force reply
+
+```python
+await client.sendTextMessage(
+    chat_id=chat_id,
+    text="Please reply to this message.",
+    reply_markup=types.ReplyMarkupForceReply(),
+)
+```
+
+## Bound methods on `Message`
+
+Every received `Message` object has shortcut methods so you don't have to pass `chat_id` manually.
+
+```python
+@client.on_message()
+async def echo(c: Client, message: types.Message):
+    if isinstance(message.content, types.MessageText):
+        # reply_text automatically sets reply_to_message_id
+        await message.reply_text(message.text, entities=message.entities)
+
+    elif isinstance(message.content, types.MessagePhoto):
+        await message.reply_photo(
+            message.remote_file_id,
+            caption=message.caption,
+        )
+
+    elif isinstance(message.content, types.MessageVideo):
+        await message.reply_video(message.remote_file_id)
+
+    elif isinstance(message.content, types.MessageAudio):
+        await message.reply_audio(message.remote_file_id)
+
+    elif isinstance(message.content, types.MessageDocument):
+        await message.reply_document(message.remote_file_id)
+
+    elif isinstance(message.content, types.MessageAnimation):
+        await message.reply_animation(message.remote_file_id)
+
+    elif isinstance(message.content, types.MessageVoiceNote):
+        await message.reply_voice(message.remote_file_id)
+
+    elif isinstance(message.content, types.MessageSticker):
+        await message.reply_sticker(message.remote_file_id)
+```
+
+Pass `no_reply=True` to any bound method to send without quoting the original message:
+
+```python
+await message.reply_text("This isn't a reply.", no_reply=True)
+```
+
+## Chat actions (typing indicator)
+
+Use `message.action()` as a context manager to show a chat action while work is in progress. The action is cancelled automatically when the `async with` block exits.
+
+```python
+@client.on_message()
+async def handle(c: Client, message: types.Message):
+    async with message.action("typing"):
+        # Simulate a slow operation
+        import asyncio
+        await asyncio.sleep(2)
+        await message.reply_text("Done thinking!")
+```
+
+You can also call it without a context manager for a fire-and-forget action:
+
+```python
+await message.action("upload_document")
+# ... do work ...
+await message.reply_document(doc_path)
+```
+
+Available action values: `typing`, `upload_photo`, `record_video`, `upload_video`, `record_voice`, `upload_voice`, `upload_document`, `choose_sticker`, `find_location`, `record_video_note`, `upload_video_note`, `cancel`.

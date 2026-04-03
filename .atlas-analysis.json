@@ -1,23 +1,11 @@
 {
-  "$schema": "https://mintlify.com/docs.json",
-  "name": "Pytdbot",
+  "projectType": "sdk-library",
+  "projectName": "Pytdbot",
+  "projectDescription": "An easy-to-use asynchronous Python wrapper for TDLib that enables building Telegram bots and user clients with a decorator-based handler system.",
   "theme": "luma",
-  "colors": {
-    "primary": "#94cb04",
-    "light": "#545454"
-  },
-  "favicon": "https://media.brand.dev/288cc7c4-5cef-4376-950b-bdf0083eedae.png",
-  "navbar": {
-    "primary": {
-      "type": "github",
-      "href": "https://github.com/pytdbot/client"
-    }
-  },
-  "footer": {
-    "socials": {
-      "github": "https://github.com/pytdbot/client"
-    }
-  },
+  "primaryColor": "#94cb04",
+  "lightColor": "#545454",
+  "darkColor": null,
   "navigation": {
     "tabs": [
       {
@@ -93,5 +81,46 @@
         ]
       }
     ]
-  }
+  },
+  "keyFeatures": [
+    "Fully asynchronous using Python asyncio",
+    "Decorator-based update handlers (on_message, on_updateNewMessage, etc.)",
+    "Bound methods on TDLib types for ergonomic usage (message.reply_text, message.edit_text)",
+    "Plugin system for modular bot architecture",
+    "Built-in filter system for routing updates",
+    "Support for both bot tokens and user accounts (userbot mode)",
+    "RabbitMQ integration for horizontal scaling via TDLib Server",
+    "Well-typed API wrapping the full TDLib surface"
+  ],
+  "publicApiSurface": [
+    "Client",
+    "ClientManager",
+    "TdJson",
+    "types",
+    "filters",
+    "filters.create",
+    "filters.Filter",
+    "exception.StopHandlers",
+    "exception.AuthorizationError",
+    "Client.on_message()",
+    "Client.on_updateNewMessage()",
+    "Client.on_updateAuthorizationState()",
+    "Client.initializer()",
+    "Client.finalizer()",
+    "Client.add_handler()",
+    "Client.run()",
+    "Client.start()",
+    "Client.stop()",
+    "Client.sendTextMessage()",
+    "Client.sendPhoto()",
+    "Client.sendVideo()",
+    "Client.sendDocument()",
+    "Client.sendAnimation()",
+    "Client.sendAudio()",
+    "Client.sendVoice()",
+    "Client.editTextMessage()",
+    "types.Plugins",
+    "types.LogStreamFile",
+    "types.Message (with bound methods: reply_text, reply_photo, edit_text, action, mention)"
+  ]
 }

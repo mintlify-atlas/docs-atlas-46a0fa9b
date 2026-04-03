@@ -1,0 +1,477 @@
+---
+title: "Message"
+description: "The Message type represents a Telegram message and includes both TDLib fields and Pytdbot-added convenience properties."
+---
+
+`types.Message` is the object you receive in message handlers and as the return value of most send/forward operations. It combines the raw TDLib fields with a set of Pytdbot-specific properties and async methods that make it easy to act on the message without needing to look up the `Client` directly.
+
+## TDLib fields
+
+These fields are part of the TDLib specification and are always present on every `Message` object.
+
+<ResponseField name="id" type="int" required>
+  Unique message identifier in the chat. Used when replying, editing, or deleting.
+</ResponseField>
+
+<ResponseField name="chat_id" type="int" required>
+  Identifier of the chat this message belongs to.
+</ResponseField>
+
+<ResponseField name="sender_id" type="MessageSenderUser | MessageSenderChat" required>
+  Who sent the message. Use `isinstance` to distinguish between a user sender and a chat sender (e.g. an anonymous group admin or a channel).
+
+  ```python
+  if isinstance(message.sender_id, types.MessageSenderUser):
+      print(message.sender_id.user_id)
+  elif isinstance(message.sender_id, types.MessageSenderChat):
+      print(message.sender_id.chat_id)
+  ```
+</ResponseField>
+
+<ResponseField name="content" type="MessageContent subclass" required>
+  The actual payload of the message — a subclass of `MessageContent` such as `MessageText`, `MessagePhoto`, `MessageVideo`, etc. Use `isinstance` to branch on the content type.
+
+  ```python
+  if isinstance(message.content, types.MessageText):
+      print(message.content.text.text)
+  ```
+</ResponseField>
+
+<ResponseField name="reply_to" type="MessageReplyTo | None">
+  Information about the message this message replies to. `None` if this message is not a reply. Use `isinstance(message.reply_to, types.MessageReplyToMessage)` before reading `reply_to.message_id`.
+</ResponseField>
+
+<ResponseField name="date" type="int" required>
+  Point in time (Unix timestamp) when the message was sent.
+</ResponseField>
+
+<ResponseField name="is_outgoing" type="bool" required>
+  `True` if the message was sent by the current account (useful in user-bot mode to skip self-messages).
+</ResponseField>
+
+## Pytdbot properties
+
+These read-only properties are added by Pytdbot on top of the TDLib fields. They are implemented as `@property` methods and cached with `lru_cache` so the computation runs at most once per message.
+
+<ResponseField name="from_id" type="int | None">
+  Flattened sender ID. Returns `sender_id.user_id` for `MessageSenderUser` or `sender_id.chat_id` for `MessageSenderChat`. Returns `None` if `sender_id` is neither.
+
+  ```python
+  print(message.from_id)  # e.g. 123456789
+  ```
+</ResponseField>
+
+<ResponseField name="reply_to_message_id" type="int | None">
+  The `message_id` from `reply_to` when `reply_to` is a `MessageReplyToMessage`. Returns `None` if this message is not a reply.
+
+  ```python
+  if message.reply_to_message_id:
+      original = await client.getMessage(
+          chat_id=message.chat_id,
+          message_id=message.reply_to_message_id,
+      )
+  ```
+</ResponseField>
+
+<ResponseField name="text" type="str">
+  Text content of a `MessageText` message. Returns an empty string `""` for any other content type — never `None`.
+
+  ```python
+  if message.text.startswith("/start"):
+      await message.reply_text("Hello!")
+  ```
+</ResponseField>
+
+<ResponseField name="entities" type="list[TextEntity] | None">
+  Formatting entities for `MessageText` content. Returns `None` for non-text messages.
+</ResponseField>
+
+<ResponseField name="caption" type="str | None">
+  Caption text for media messages (`MessagePhoto`, `MessageVideo`, `MessageAnimation`, `MessageAudio`, `MessageDocument`, `MessageVoiceNote`). Returns `None` for all other content types.
+</ResponseField>
+
+<ResponseField name="caption_entities" type="list[TextEntity] | None">
+  Formatting entities for the caption. Returns `None` for non-media content types.
+</ResponseField>
+
+<ResponseField name="remote_file_id" type="str | None">
+  The remote file ID string for the media file in the message content. Works for `MessagePhoto`, `MessageVideo`, `MessageSticker`, `MessageAnimation`, `MessageAudio`, `MessageDocument`, `MessageVoiceNote`, and `MessageVideoNote`. Returns `None` for text messages or unsupported content types.
+
+  Pass this string back to any `send*` method to resend the same file without re-uploading:
+
+  ```python
+  await client.sendPhoto(chat_id=other_chat, photo=message.remote_file_id)
+  ```
+</ResponseField>
+
+<ResponseField name="remote_unique_file_id" type="str | None">
+  The unique remote file ID for the media file. Unlike `remote_file_id`, this is stable across different bots and accounts. Same content-type support as `remote_file_id`.
+</ResponseField>
+
+## Async methods
+
+### Sending replies
+
+All `reply_*` methods automatically set `reply_to_message_id` to the current message's `id`. Pass `no_reply=True` to send without quoting the original message.
+
+---
+
+**`reply_text(text, parse_mode, entities, ...)`**
+
+Reply with a text message.
+
+<ParamField path="text" type="str" required>
+  The message text. Interpreted according to `parse_mode`.
+</ParamField>
+<ParamField path="parse_mode" type="str | None">
+  `"html"`, `"markdown"`, or `"markdownv2"`. Defaults to the client's `default_parse_mode`.
+</ParamField>
+<ParamField path="entities" type="list[TextEntity] | None">
+  Pre-parsed text entities. If provided, `parse_mode` is ignored.
+</ParamField>
+<ParamField path="disable_web_page_preview" type="bool" default="False">
+  Suppress the link preview.
+</ParamField>
+<ParamField path="disable_notification" type="bool" default="False">
+  Send silently.
+</ParamField>
+<ParamField path="protect_content" type="bool" default="False">
+  Prevent forwarding or saving the message.
+</ParamField>
+<ParamField path="no_reply" type="bool" default="False">
+  Send without replying to the original message.
+</ParamField>
+<ParamField path="reply_markup" type="ReplyMarkup | None">
+  Inline keyboard, reply keyboard, force-reply, or keyboard removal.
+</ParamField>
+
+```python
+await message.reply_text("Hello, <b>world</b>!", parse_mode="html")
+```
+
+---
+
+**`reply_photo(photo, caption, parse_mode, ...)`**
+
+Reply with a photo.
+
+<ParamField path="photo" type="InputFile | str" required>
+  A local file (`InputFileLocal`), a remote file ID string, or any other `InputFile` subclass.
+</ParamField>
+<ParamField path="caption" type="str | None">
+  Caption text.
+</ParamField>
+<ParamField path="parse_mode" type="str | None">
+  Parse mode for the caption.
+</ParamField>
+<ParamField path="has_spoiler" type="bool" default="False">
+  Cover the photo with a spoiler overlay.
+</ParamField>
+
+```python
+await message.reply_photo(message.remote_file_id, caption="Here it is again")
+```
+
+---
+
+**`reply_video(video, caption, parse_mode, ...)`**
+
+Reply with a video.
+
+<ParamField path="video" type="InputFile | str" required>
+  Video file or remote file ID.
+</ParamField>
+<ParamField path="caption" type="str | None">
+  Caption text.
+</ParamField>
+<ParamField path="supports_streaming" type="bool | None">
+  Mark the video as suitable for streaming.
+</ParamField>
+<ParamField path="duration" type="int" default="0">
+  Duration in seconds.
+</ParamField>
+<ParamField path="width" type="int" default="0">
+  Video width in pixels.
+</ParamField>
+<ParamField path="height" type="int" default="0">
+  Video height in pixels.
+</ParamField>
+
+---
+
+**`reply_document(document, caption, parse_mode, ...)`**
+
+Reply with a document (any file type).
+
+<ParamField path="document" type="InputFile | str" required>
+  Document file or remote file ID.
+</ParamField>
+<ParamField path="caption" type="str | None">
+  Caption text.
+</ParamField>
+<ParamField path="disable_content_type_detection" type="bool" default="True">
+  Disable automatic MIME-type detection.
+</ParamField>
+
+---
+
+**`reply_animation(animation, caption, parse_mode, ...)`**
+
+Reply with a GIF or MP4 animation.
+
+<ParamField path="animation" type="InputFile | str" required>
+  Animation file or remote file ID.
+</ParamField>
+<ParamField path="caption" type="str | None">
+  Caption text.
+</ParamField>
+<ParamField path="has_spoiler" type="bool" default="False">
+  Cover with a spoiler overlay.
+</ParamField>
+
+---
+
+**`reply_audio(audio, caption, parse_mode, ...)`**
+
+Reply with an audio track.
+
+<ParamField path="audio" type="InputFile | str" required>
+  Audio file or remote file ID.
+</ParamField>
+<ParamField path="title" type="str | None">
+  Track title.
+</ParamField>
+<ParamField path="performer" type="str | None">
+  Artist / performer name.
+</ParamField>
+<ParamField path="duration" type="int" default="0">
+  Duration in seconds.
+</ParamField>
+
+---
+
+**`reply_voice(voice, caption, parse_mode, ...)`**
+
+Reply with a voice note.
+
+<ParamField path="voice" type="InputFile | str" required>
+  OGG/OPUS voice file or remote file ID.
+</ParamField>
+<ParamField path="duration" type="int" default="0">
+  Duration in seconds.
+</ParamField>
+
+---
+
+**`reply_video_note(video_note, ...)`**
+
+Reply with a round video note.
+
+<ParamField path="video_note" type="InputFile | str" required>
+  Video note file or remote file ID.
+</ParamField>
+<ParamField path="duration" type="int" default="0">
+  Duration in seconds.
+</ParamField>
+<ParamField path="length" type="int" default="0">
+  Video side size in pixels.
+</ParamField>
+
+---
+
+**`reply_sticker(sticker, emoji, ...)`**
+
+Reply with a sticker.
+
+<ParamField path="sticker" type="InputFile | str" required>
+  Sticker file or remote file ID.
+</ParamField>
+<ParamField path="emoji" type="str | None">
+  Emoji associated with the sticker.
+</ParamField>
+
+---
+
+### Editing
+
+**`edit_text(text, parse_mode, entities, ...)`**
+
+Edit the text of this message. The message must have been sent by the current account.
+
+<ParamField path="text" type="str" required>
+  New message text.
+</ParamField>
+<ParamField path="parse_mode" type="str | None">
+  Parse mode for the new text.
+</ParamField>
+<ParamField path="disable_web_page_preview" type="bool" default="False">
+  Suppress the link preview.
+</ParamField>
+<ParamField path="reply_markup" type="ReplyMarkup | None">
+  Updated inline keyboard.
+</ParamField>
+
+```python
+await message.edit_text("Updated content", parse_mode="html")
+```
+
+---
+
+### Moderation
+
+**`delete(revoke=True)`**
+
+Delete this message.
+
+<ParamField path="revoke" type="bool" default="True">
+  When `True`, deletes the message for all participants. Always `True` for supergroups and channels.
+</ParamField>
+
+```python
+await message.delete()
+```
+
+**`pin(disable_notification=False, only_for_self=False)`**
+
+Pin this message in the chat.
+
+<ParamField path="disable_notification" type="bool" default="False">
+  Pin without notifying chat members.
+</ParamField>
+<ParamField path="only_for_self" type="bool" default="False">
+  Pin only for the current user (private chats only).
+</ParamField>
+
+**`unpin()`**
+
+Unpin this message.
+
+**`react(emoji, is_big)`**
+
+React to this message with an emoji.
+
+<ParamField path="emoji" type="str" default="👍">
+  Emoji string. Pass `None` to remove the current reaction.
+</ParamField>
+<ParamField path="is_big" type="bool" default="False">
+  Show the big animation.
+</ParamField>
+
+**`ban(banned_until_date=0)`**
+
+Ban the sender from the current chat.
+
+<ParamField path="banned_until_date" type="int" default="0">
+  Unix timestamp when the ban expires. `0` means permanent.
+</ParamField>
+
+**`kick()`**
+
+Kick the sender from the current chat (they can rejoin).
+
+**`restrict(permissions, restricted_until_date=0)`**
+
+Restrict the sender's permissions in the current chat.
+
+<ParamField path="permissions" type="ChatPermissions" required>
+  The new permission set to apply.
+</ParamField>
+<ParamField path="restricted_until_date" type="int" default="0">
+  Unix timestamp when restrictions expire. `0` means permanent.
+</ParamField>
+
+---
+
+### Chat actions
+
+**`action(action_type, topic_id=None)`**
+
+Broadcast a chat action (typing indicator, upload progress, etc.). Supports use as an async context manager — the action is cancelled automatically when the `async with` block exits.
+
+<ParamField path="action_type" type="str" required>
+  One of: `"typing"`, `"upload_photo"`, `"record_video"`, `"upload_video"`, `"record_voice"`, `"upload_voice"`, `"upload_document"`, `"choose_sticker"`, `"find_location"`, `"record_video_note"`, `"upload_video_note"`, `"cancel"`.
+</ParamField>
+
+```python
+# As a context manager
+async with message.action("typing"):
+    await asyncio.sleep(2)
+    await message.reply_text("Done!")
+
+# Fire-and-forget
+await message.action("upload_document")
+await message.reply_document(doc_path)
+```
+
+---
+
+### Forwarding and copying
+
+**`forward(chat_id, in_game_share=False, disable_notification=False)`**
+
+Forward this message to another chat. The original sender attribution is preserved.
+
+<ParamField path="chat_id" type="int" required>
+  Destination chat ID.
+</ParamField>
+
+**`copy(chat_id, replace_caption=False, new_caption=None, ...)`**
+
+Copy this message to another chat without the forward attribution header.
+
+<ParamField path="chat_id" type="int" required>
+  Destination chat ID.
+</ParamField>
+<ParamField path="replace_caption" type="bool | None">
+  Replace the original caption with `new_caption`.
+</ParamField>
+<ParamField path="new_caption" type="str | None">
+  New caption text when `replace_caption` is `True`.
+</ParamField>
+
+---
+
+### Lookups
+
+**`mention(parse_mode="html")`** — async
+
+Returns a text mention string for the message sender (e.g. `<a href="tg://user?id=123">Name</a>`).
+
+<ParamField path="parse_mode" type="str" default="html">
+  `"html"` or `"markdown"`.
+</ParamField>
+
+```python
+mention = await message.mention()
+await message.reply_text(f"Hello, {mention}!", parse_mode="html")
+```
+
+**`getChat()`** — async
+
+Fetch the `Chat` object for the chat this message belongs to.
+
+**`getUser()`** — async
+
+Fetch the `User` object for the message sender. Uses `from_id` internally.
+
+**`getChatMember()`** — async
+
+Fetch the `ChatMember` object for the sender in the current chat.
+
+**`getRepliedMessage()`** — async
+
+Fetch the `Message` object that this message replies to.
+
+**`getMessageLink(media_timestamp=0, for_album=False, in_message_thread=False)`** — async
+
+Generate a shareable link for this message.
+
+**`download(priority=1, offset=0, limit=0, synchronous=True)`** — async
+
+Download the media file attached to this message. Returns a `LocalFile` object with the local path, or `types.Error` on failure.
+
+```python
+local = await message.download()
+if not isinstance(local, types.Error):
+    print(local.path)
+```

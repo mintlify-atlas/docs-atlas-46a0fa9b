@@ -1,0 +1,180 @@
+---
+title: "Handlers"
+description: "Handlers are async functions that respond to Telegram updates. Register them using decorators on the Client instance."
+---
+
+## Overview
+
+A handler is an `async` function that Pytdbot calls when a matching TDLib update arrives. You register handlers by applying a decorator to the function — either directly on the `client` instance or inside a plugin module.
+
+Every handler receives exactly two positional arguments:
+
+| Argument | Type | Description |
+|---|---|---|
+| `c` | `Client` | The running client instance. |
+| `update` | TDLib type | The update or inner object, depending on the decorator. |
+
+---
+
+## Decorator patterns
+
+### `@client.on_message()`
+
+Handles `UpdateNewMessage` but automatically unwraps it, so your handler receives the `Message` object directly.
+
+```python
+@client.on_message()
+async def echo(_: Client, message: types.Message):
+    if isinstance(message.content, types.MessageText):
+        await message.reply_text(message.text, entities=message.entities)
+```
+
+### `@client.on_updateNewMessage()`
+
+Handles the raw `UpdateNewMessage` update. Use this when you need access to the full update envelope.
+
+```python
+@client.on_updateNewMessage()
+async def print_message(_: Client, update: types.UpdateNewMessage):
+    print(update)
+```
+
+<Note>
+  Both decorators are registered for the same underlying `updateNewMessage` event. The difference is `on_message()` sets `inner_object=True` internally, which tells Pytdbot to pass `UpdateNewMessage.message` instead of the full update object. Both run independently in the order they were registered.
+</Note>
+
+### Any TDLib update type
+
+Every TDLib update type has a matching decorator. For example:
+
+```python
+@client.on_updateAuthorizationState()
+async def on_auth_state(_: Client, update):
+    print(update)
+```
+
+The full list of generated decorators mirrors the TDLib update type list. Decorator names follow the pattern `on_<updateType>()` using camelCase.
+
+---
+
+## Decorator parameters
+
+All handler decorators share the same optional parameters:
+
+<ParamField path="filters" type="Filter" optional>
+  A `Filter` instance. The handler is called only when the filter returns `True`. See [Filters](/concepts/filters).
+</ParamField>
+
+<ParamField path="position" type="int" optional>
+  Index in the handler list for this update type. Default: `None` (append to end). Lower positions run first.
+</ParamField>
+
+<ParamField path="timeout" type="float" optional>
+  Maximum execution time in seconds for this handler before it is cancelled. Default: `None` (falls back to `Client.default_handlers_timeout`).
+</ParamField>
+
+<ParamField path="inner_object" type="bool" optional>
+  When `True`, the handler receives the inner object of the update (e.g. `UpdateNewMessage.message`) instead of the full update. `on_message()` sets this to `True` automatically. Default: `False`.
+</ParamField>
+
+---
+
+## Initializer and finalizer decorators
+
+`@client.initializer()` and `@client.finalizer()` are special handlers that run before and after the normal handler chain, respectively, for every matching update.
+
+```python
+@client.initializer()
+async def before_handlers(_: Client, update):
+    # Runs before any other handler for every update
+    print("Incoming update:", type(update).__name__)
+
+
+@client.finalizer()
+async def after_handlers(_: Client, update):
+    # Runs after all other handlers for every update
+    print("Done processing:", type(update).__name__)
+```
+
+Both decorators accept the same `filters`, `position`, `inner_object`, and `timeout` parameters as regular handlers.
+
+---
+
+## Stopping the handler chain
+
+Raise `StopHandlers` inside a handler to prevent the remaining handlers in the chain from running:
+
+```python
+from pytdbot import Client, types
+from pytdbot.exception import StopHandlers
+
+
+@client.on_message()
+async def guard(_: Client, message: types.Message):
+    if message.from_id == 12345:
+        raise StopHandlers  # No further handlers run for this update
+```
+
+---
+
+## Programmatic registration with `add_handler()`
+
+You can register handlers without decorators using `client.add_handler()`:
+
+```python
+async def my_handler(c: Client, message: types.Message):
+    await message.reply_text("Hello!")
+
+client.add_handler(
+    update_type="updateNewMessage",
+    func=my_handler,
+    inner_object=True,   # receive Message, not UpdateNewMessage
+    position=0,          # run first
+)
+```
+
+`add_handler()` parameters:
+
+| Parameter | Type | Description |
+|---|---|---|
+| `update_type` | `str` or `Update` subclass | The TDLib update type to handle. |
+| `func` | `Callable` | An async function. |
+| `filters` | `Filter` | Optional filter. |
+| `position` | `int` | Position in handler list. |
+| `inner_object` | `bool` | Pass inner object instead of full update. |
+| `timeout` | `float` | Per-handler timeout in seconds. |
+
+---
+
+## Plugin-style registration
+
+When using the plugin system, decorate your functions _without_ a client instance. Because `on_message()` (and all other update decorators) define `self` as an optional first argument, calling them standalone results in the handler being stored as a `_handler` attribute on the function. Pytdbot's plugin loader scans each plugin module for objects with this attribute and registers them automatically.
+
+```python plugins/messages.py
+from pytdbot import Client, types
+
+
+@Client.on_message()
+async def echo(_: Client, message: types.Message):
+    if isinstance(message.content, types.MessageText):
+        await message.reply_text(message.text, entities=message.entities)
+```
+
+Then point the client to the plugins folder:
+
+```python bot.py
+from pytdbot import Client, types
+
+client = Client(
+    token="YOUR_BOT_TOKEN",
+    api_id=12345,
+    api_hash="YOUR_API_HASH",
+    files_directory="BotDB",
+    database_encryption_key="secret",
+    plugins=types.Plugins(folder="plugins"),
+)
+
+client.run()
+```
+
+See the [Plugins guide](/guides/plugins) for the full loading and filtering API.

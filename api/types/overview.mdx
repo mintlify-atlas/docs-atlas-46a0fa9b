@@ -1,0 +1,263 @@
+---
+title: "Types overview"
+description: "Pytdbot exposes the full TDLib type system as Python classes under pytdbot.types."
+---
+
+## The `pytdbot.types` module
+
+`pytdbot.types` contains Python classes that map 1:1 to every type in TDLib's type system. When TDLib sends an update or you call a client method, the result is always one of these typed objects — never a raw dict.
+
+```python
+from pytdbot import types
+
+# Access any type directly
+msg_text = types.MessageText(...)
+user = types.User(...)
+```
+
+You can also import the module as a namespace:
+
+```python
+from pytdbot import types
+
+# types.Message, types.User, types.Chat, etc.
+```
+
+## `TlObject` — the base class
+
+Every type in `pytdbot.types` ultimately inherits from `TlObject`. It provides a small set of shared behaviors:
+
+- **`__bool__`** — evaluates to `False` when the object is an `Error`, `True` otherwise. Use this to do a quick success check after any API call.
+- **`is_error`** — property that returns `True` when the object is an `Error`.
+- **`limited_seconds`** — when the error code is `429` (rate limit), returns the number of seconds to wait before retrying; `0` otherwise.
+- **`getType()`** — class method that returns the TDLib type string (e.g. `"message"`).
+- **`getClass()`** — class method that returns the abstract parent class name.
+- **`to_dict()`** — serialises the object to a plain dict in TDLib wire format.
+- **`from_dict(data)`** — class method that deserialises a TDLib dict into the correct type.
+
+```python
+result = await client.sendTextMessage(chat_id=chat_id, text="Hello")
+
+if not result:  # TlObject.__bool__ returns False for Error
+    print(result.message)  # TDLib error message string
+else:
+    print(result.id)  # Message ID
+```
+
+## Import pattern
+
+```python
+from pytdbot import types
+
+# Use any type as types.<TypeName>
+print(types.Message)
+print(types.User)
+print(types.UpdateNewMessage)
+```
+
+## Key type categories
+
+<AccordionGroup>
+  <Accordion title="Message types">
+    Types that represent the content carried inside a `Message`.
+
+    | Type | Description |
+    |------|-------------|
+    | `Message` | A Telegram message — the core update object. Carries `content`, `sender_id`, `chat_id`, and more. |
+    | `MessageText` | Plain text or rich text message. |
+    | `MessagePhoto` | A photo with an optional caption. |
+    | `MessageVideo` | A video with an optional caption. |
+    | `MessageDocument` | Any file uploaded as a document. |
+    | `MessageAnimation` | A GIF or MP4 animation. |
+    | `MessageAudio` | An audio track (music). |
+    | `MessageVoiceNote` | A voice message. |
+    | `MessageVideoNote` | A round video note. |
+    | `MessageSticker` | A sticker. |
+
+    ```python
+    @client.on_message()
+    async def handler(c, message: types.Message):
+        if isinstance(message.content, types.MessageText):
+            print(message.text)
+        elif isinstance(message.content, types.MessagePhoto):
+            print(message.remote_file_id)
+    ```
+  </Accordion>
+
+  <Accordion title="Update types">
+    TDLib delivers changes to the client as update objects.
+
+    | Type | Description |
+    |------|-------------|
+    | `UpdateNewMessage` | A new incoming message. |
+    | `UpdateEditedMessage` | An existing message was edited. |
+    | `UpdateDeleteMessages` | One or more messages were deleted. |
+    | `UpdateAuthorizationState` | The authorization state changed. |
+    | `UpdateNewCallbackQuery` | A user pressed an inline keyboard button. |
+
+    ```python
+    @client.on_updateNewCallbackQuery()
+    async def on_button(c, query: types.UpdateNewCallbackQuery):
+        await query.answer(text="Got it!")
+    ```
+  </Accordion>
+
+  <Accordion title="User and chat types">
+    Represent Telegram users, chats, and chat types.
+
+    | Type | Description |
+    |------|-------------|
+    | `User` | A Telegram user account. |
+    | `Chat` | A Telegram chat (private, group, supergroup, or channel). |
+    | `ChatTypeSupergroup` | Chat type for supergroups and channels. |
+    | `ChatTypePrivate` | Chat type for private (1:1) chats. |
+    | `ChatTypeBasicGroup` | Chat type for basic groups. |
+
+    ```python
+    chat = await client.getChat(chat_id=chat_id)
+    if isinstance(chat.type, types.ChatTypePrivate):
+        print("This is a DM")
+    ```
+  </Accordion>
+
+  <Accordion title="Input types">
+    Used to construct requests — for example, when sending a file or formatted text.
+
+    | Type | Description |
+    |------|-------------|
+    | `InputFile` | Abstract base for file inputs. |
+    | `InputFileLocal` | A file at a local path. |
+    | `InputFileRemote` | A file by remote file ID string. |
+    | `InputMessageText` | A text message to send. |
+    | `InputMessagePhoto` | A photo message to send. |
+    | `FormattedText` | Text with pre-parsed entities (no parse mode needed). |
+
+    ```python
+    from pytdbot import types
+
+    file = types.InputFileLocal(path="/tmp/image.jpg")
+    await client.sendPhoto(chat_id=chat_id, photo=file)
+    ```
+  </Accordion>
+
+  <Accordion title="Reply markup">
+    Attach keyboard buttons or force-reply prompts to outgoing messages.
+
+    | Type | Description |
+    |------|-------------|
+    | `ReplyMarkupInlineKeyboard` | Inline buttons attached below a message. |
+    | `ReplyMarkupShowKeyboard` | Custom reply keyboard shown to the user. |
+    | `ReplyMarkupForceReply` | Forces the user to reply. |
+    | `ReplyMarkupRemoveKeyboard` | Removes the custom keyboard. |
+    | `InlineKeyboardButton` | A single inline button with a `type` payload. |
+
+    ```python
+    markup = types.ReplyMarkupInlineKeyboard(
+        rows=[[
+            types.InlineKeyboardButton(
+                text="Click me",
+                type=types.InlineKeyboardButtonTypeCallback(data=b"my_action"),
+            )
+        ]]
+    )
+    await client.sendTextMessage(chat_id=chat_id, text="Pick one:", reply_markup=markup)
+    ```
+  </Accordion>
+
+  <Accordion title="Authorization state types">
+    Represent the current TDLib authorization flow state.
+
+    | Type | Description |
+    |------|-------------|
+    | `AuthorizationStateWaitPhoneNumber` | Waiting for a phone number to be provided. |
+    | `AuthorizationStateWaitCode` | Waiting for the authentication code. |
+    | `AuthorizationStateReady` | Authorization complete — the client is ready. |
+
+    ```python
+    @client.on_updateAuthorizationState()
+    async def on_auth(c, update: types.UpdateAuthorizationState):
+        if isinstance(update.authorization_state, types.AuthorizationStateReady):
+            print("Logged in!")
+    ```
+  </Accordion>
+
+  <Accordion title="Log types">
+    Control where TDLib writes its internal log output.
+
+    | Type | Description |
+    |------|-------------|
+    | `LogStreamFile` | Write the TDLib log to a file. |
+    | `LogStreamDefault` | Use the default log stream (stderr). |
+
+    ```python
+    await client.setLogStream(
+        log_stream=types.LogStreamFile(path="/var/log/tdlib.log", max_file_size=10_000_000)
+    )
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## The `Error` type
+
+TDLib API errors are **not raised as Python exceptions** — they are returned as `types.Error` objects. Every client method can return either its documented success type or `types.Error`.
+
+`Error` has two key fields:
+
+- **`code`** — TDLib error code (integer, e.g. `400`, `404`, `429`).
+- **`message`** — Human-readable error description string.
+
+Because `TlObject.__bool__` returns `False` for `Error` objects, you can check the result with a simple `if` or `if not`:
+
+```python
+result = await client.sendTextMessage(chat_id=chat_id, text="Hello")
+
+if isinstance(result, types.Error):
+    print(f"Error {result.code}: {result.message}")
+else:
+    print(f"Sent message ID: {result.id}")
+```
+
+For rate-limit errors (`code == 429`) use `result.limited_seconds` to get the retry-after duration:
+
+```python
+if result.is_error and result.code == 429:
+    import asyncio
+    await asyncio.sleep(result.limited_seconds)
+```
+
+## The `Plugins` type
+
+`Plugins` tells the `Client` where to find handler modules and which ones to load.
+
+<ResponseField name="folder" type="str" required>
+  Path to the directory containing your plugin files. Module names are derived from filenames relative to this folder.
+</ResponseField>
+
+<ResponseField name="include" type="list[str]" required={false}>
+  If provided, only modules whose dotted names appear in this list are loaded. For example, `"subfolder.commands"` maps to `folder/subfolder/commands.py`.
+</ResponseField>
+
+<ResponseField name="exclude" type="list[str]" required={false}>
+  Module names to skip during loading. Takes precedence over `include`.
+</ResponseField>
+
+```python
+from pytdbot import Client, types
+
+client = Client(
+    token="BOT_TOKEN",
+    api_id=0,
+    api_hash="API_HASH",
+    database_encryption_key="key",
+    files_directory="BotDB",
+    plugins=types.Plugins(
+        folder="plugins",
+        include=["commands", "admin.moderation"],
+        exclude=["experiments"],
+    ),
+)
+```
+
+<Note>
+  Raise `TypeError` if `folder` is not a string or if `include`/`exclude` are not lists.
+</Note>

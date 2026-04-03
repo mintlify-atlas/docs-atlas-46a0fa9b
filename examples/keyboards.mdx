@@ -1,0 +1,288 @@
+---
+title: "Inline keyboards"
+description: "Build interactive bots using inline keyboards and callback queries."
+---
+
+Telegram supports several kinds of reply markup. This example covers all four types — inline keyboard, reply keyboard, keyboard removal, and force-reply — and shows how to react to button presses via callback queries.
+
+## Full source
+
+```python keyboardBot.py
+import logging
+
+from pytdbot import Client, types
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="[%(levelname)s][p %(process)d %(threadName)s][%(created)f][%(filename)s:%(lineno)d][%(funcName)s]  %(message)s",
+)
+
+client = Client(
+    api_id=0,  # Your api_id. You can get it from https://my.telegram.org/
+    api_hash="API_HASH",  # Your api_hash. You can get it from https://my.telegram.org/
+    database_encryption_key="1234echobot$",  # Your database encryption key
+    token="1088394097:AAQX2DnWiw4ihwiJUhIHOGog8gGOI",  # Your bot token. You can get it from https://t.me/botfather
+    files_directory="BotDB",  # Path where to store TDLib files
+    workers=2,  # Number of workers
+    td_verbosity=2,  # TDLib verbosity level
+    td_log=types.LogStreamFile(
+        path="tdlib.log", max_file_size=104857600
+    ),  # Set TDLib log file path
+)
+
+
+@client.on_message()
+async def start(c: Client, message: types.Message):
+    if message.text == "/start":
+        text = "Hello {}!\n".format(await message.mention("html"))
+        text += "Here is some bot commands:\n\n"
+        text += "- /keyboard - show keyboard\n"
+        text += "- /inline - show inline keyboard\n"
+        text += "- /remove - remove keyboard\n"
+        text += "- /force - force reply"
+
+        await message.reply_text(
+            text,
+            reply_markup=types.ReplyMarkupInlineKeyboard(
+                rows=[
+                    [
+                        types.InlineKeyboardButton(
+                            text="GitHub",
+                            type=types.InlineKeyboardButtonTypeUrl(
+                                url="https://github.com/pytdbot/client"
+                            ),
+                        )
+                    ]
+                ]
+            ),
+        )
+
+
+@client.on_message()
+async def commands(c: Client, message: types.Message):
+    if message.text == "/inline":
+        await message.reply_text(
+            "This is a Inline keyboard",
+            reply_markup=types.ReplyMarkupInlineKeyboard(
+                rows=[
+                    [
+                        types.InlineKeyboardButton(
+                            text="OwO",
+                            type=types.InlineKeyboardButtonTypeCallback(data=b"OwO"),
+                        ),
+                        types.InlineKeyboardButton(
+                            text="UwU",
+                            type=types.InlineKeyboardButtonTypeCallback(data=b"UwU"),
+                        ),
+                    ],
+                ]
+            ),
+        )
+    elif message.text == "/keyboard":
+        await message.reply_text(
+            "This is a keyboard",
+            reply_markup=types.ReplyMarkupShowKeyboard(
+                rows=[
+                    [
+                        types.KeyboardButton(
+                            text="OwO", type=types.KeyboardButtonTypeText()
+                        ),
+                        types.KeyboardButton(
+                            text="UwU", type=types.KeyboardButtonTypeText()
+                        ),
+                    ],
+                ],
+                one_time=True,
+                resize_keyboard=True,
+            ),
+        )
+    elif message.text == "/remove":
+        await message.reply_text(
+            "Keyboards removed",
+            reply_markup=types.ReplyMarkupRemoveKeyboard(),
+        )
+    elif message.text == "/force":
+        await message.reply_text(
+            "This is a force reply",
+            reply_markup=types.ReplyMarkupForceReply(),
+        )
+    elif message.text:
+        if "/start" not in message.text:
+            await message.reply_text(f'You said "{message.text}"')
+
+
+@client.on_updateNewCallbackQuery()
+async def callback_query(c: Client, message: types.UpdateNewCallbackQuery):
+    if message.payload.data:
+        await c.editTextMessage(
+            message.chat_id,
+            message.message_id,
+            f"You pressed {message.payload.data.decode()}",
+            reply_markup=types.ReplyMarkupInlineKeyboard(
+                rows=[
+                    [
+                        types.InlineKeyboardButton(
+                            text="GitHub",
+                            type=types.InlineKeyboardButtonTypeUrl(
+                                url="https://github.com/pytdbot/client"
+                            ),
+                        )
+                    ]
+                ]
+            ),
+        )
+
+
+# Run the client
+client.run()
+```
+
+## Walkthrough
+
+### Building a `ReplyMarkupInlineKeyboard`
+
+An inline keyboard is attached to a specific message and stays visible below it. Build one by constructing `ReplyMarkupInlineKeyboard` with a list of rows, where each row is a list of `InlineKeyboardButton` objects.
+
+```python
+reply_markup=types.ReplyMarkupInlineKeyboard(
+    rows=[
+        [
+            types.InlineKeyboardButton(
+                text="GitHub",
+                type=types.InlineKeyboardButtonTypeUrl(
+                    url="https://github.com/pytdbot/client"
+                ),
+            )
+        ]
+    ]
+)
+```
+
+Each button requires a `text` label and a `type` that controls what happens when the button is tapped:
+
+| Button type | Class | Effect |
+|---|---|---|
+| Open a URL | `InlineKeyboardButtonTypeUrl(url=...)` | Opens the URL in the browser |
+| Send callback data | `InlineKeyboardButtonTypeCallback(data=b"...")` | Triggers an `UpdateNewCallbackQuery` event |
+
+The `data` field for callback buttons is a `bytes` object. Keep it small — Telegram limits callback data to 64 bytes.
+
+### Sending a message with an inline keyboard
+
+Pass the `reply_markup` keyword argument to any `reply_*` or `send*` method:
+
+```python
+await message.reply_text(
+    "This is a Inline keyboard",
+    reply_markup=types.ReplyMarkupInlineKeyboard(
+        rows=[
+            [
+                types.InlineKeyboardButton(
+                    text="OwO",
+                    type=types.InlineKeyboardButtonTypeCallback(data=b"OwO"),
+                ),
+                types.InlineKeyboardButton(
+                    text="UwU",
+                    type=types.InlineKeyboardButtonTypeCallback(data=b"UwU"),
+                ),
+            ],
+        ]
+    ),
+)
+```
+
+Both buttons appear side-by-side in a single row because they are in the same inner list.
+
+### Other reply markup types
+
+Pytdbot exposes all four Telegram reply markup types:
+
+**Reply keyboard** — appears in the keyboard area of the Telegram app. Tapping a button sends its label as a regular text message.
+
+```python
+types.ReplyMarkupShowKeyboard(
+    rows=[
+        [
+            types.KeyboardButton(text="OwO", type=types.KeyboardButtonTypeText()),
+            types.KeyboardButton(text="UwU", type=types.KeyboardButtonTypeText()),
+        ],
+    ],
+    one_time=True,       # hide keyboard after one tap
+    resize_keyboard=True, # shrink keyboard to fit the buttons
+)
+```
+
+**Remove keyboard** — dismisses any previously shown reply keyboard.
+
+```python
+types.ReplyMarkupRemoveKeyboard()
+```
+
+**Force reply** — prompts the client to open a reply interface automatically.
+
+```python
+types.ReplyMarkupForceReply()
+```
+
+### Handling callback queries with `on_updateNewCallbackQuery`
+
+When a user taps an inline button whose type is `InlineKeyboardButtonTypeCallback`, TDLib fires an `UpdateNewCallbackQuery` event. Register a handler with `@client.on_updateNewCallbackQuery()`:
+
+```python
+@client.on_updateNewCallbackQuery()
+async def callback_query(c: Client, message: types.UpdateNewCallbackQuery):
+    if message.payload.data:
+        await c.editTextMessage(
+            message.chat_id,
+            message.message_id,
+            f"You pressed {message.payload.data.decode()}",
+            reply_markup=types.ReplyMarkupInlineKeyboard(
+                rows=[
+                    [
+                        types.InlineKeyboardButton(
+                            text="GitHub",
+                            type=types.InlineKeyboardButtonTypeUrl(
+                                url="https://github.com/pytdbot/client"
+                            ),
+                        )
+                    ]
+                ]
+            ),
+        )
+```
+
+The update object exposes:
+
+- **`message.chat_id`** — the chat containing the message.
+- **`message.message_id`** — the ID of the message the keyboard was attached to.
+- **`message.payload`** — a `CallbackQueryPayloadData` object. Its `.data` attribute is the raw `bytes` value set when the button was created.
+
+### Answering a callback query
+
+TDLib requires every callback query to be answered, otherwise the loading spinner in the Telegram client never stops. Use the `answer()` bound method available on `UpdateNewCallbackQuery`:
+
+```python
+await callback_query_update.answer(
+    text="Button received!",  # shown as a toast or alert
+    show_alert=False,         # True shows a modal alert instead of a toast
+)
+```
+
+`answer()` is a shortcut for `Client.answerCallbackQuery`. If you only need to edit the message and not show any notification, you can call `answer("")` with an empty string.
+
+### Editing the message after a button press
+
+After handling the callback, the example replaces the message text and swaps the inline keyboard for a URL button using `Client.editTextMessage`. You can also use the bound method on the callback query update directly:
+
+```python
+await callback_query_update.edit_message_text(
+    "You pressed the button!",
+    reply_markup=types.ReplyMarkupInlineKeyboard(...),
+)
+```
+
+`edit_message_text` is a bound method on `UpdateNewCallbackQuery` that wraps `Client.editTextMessage` using `chat_id` and `message_id` from the update automatically.
+
+<Note>
+  Telegram only allows editing a message's text if the bot originally sent it. You cannot edit messages sent by users.
+</Note>

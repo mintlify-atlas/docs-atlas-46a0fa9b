@@ -1,0 +1,183 @@
+---
+title: "Echo bot"
+description: "A bot that echoes back every message it receives, including text, photos, videos, and other media."
+---
+
+An echo bot is the simplest meaningful Telegram bot you can write. Every message a user sends — text, photo, video, audio, document, sticker, GIF, or voice note — gets sent right back. It demonstrates the core Pytdbot patterns: creating a `Client`, registering handlers with decorators, and using bound methods to reply.
+
+## Full source
+
+```python echobot.py
+import logging
+
+from pytdbot import Client, types
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="[%(levelname)s][p %(process)d %(threadName)s][%(created)f][%(filename)s:%(lineno)d][%(funcName)s]  %(message)s",
+)
+
+
+client = Client(
+    token="1088394097:AAQX2DnWiw4ihwiJUhIHOGog8gGOI",  # Your bot token
+    api_id=0,
+    api_hash="API_HASH",
+    files_directory="BotDB",  # Path where to store TDLib files
+    database_encryption_key="1234echobot$",
+    td_verbosity=2,  # TDLib verbosity level
+    td_log=types.LogStreamFile(
+        path="tdlib.log", max_file_size=104857600
+    ),  # Set TDLib log file path
+)
+
+
+@client.on_updateNewMessage()
+async def print_message(_: Client, message: types.Message):
+    print(message)
+
+
+@client.on_message()
+async def echo(_: Client, message: types.Message):
+    if isinstance(message.content, types.MessageText):
+        await message.reply_text(message.text, entities=message.entities)
+
+    elif isinstance(message.content, types.MessageAnimation):
+        await message.reply_animation(
+            message.remote_file_id,
+            caption=message.caption,
+            caption_entities=message.entities,
+        )
+
+    elif isinstance(message.content, types.MessageAudio):
+        await message.reply_audio(
+            message.remote_file_id,
+            caption=message.caption,
+            caption_entities=message.entities,
+        )
+
+    elif isinstance(message.content, types.MessageDocument):
+        await message.reply_document(
+            message.remote_file_id,
+            caption=message.caption,
+            caption_entities=message.entities,
+        )
+
+    elif isinstance(message.content, types.MessagePhoto):
+        await message.reply_photo(
+            message.remote_file_id,
+            caption=message.caption,
+            caption_entities=message.entities,
+        )
+
+    elif isinstance(message.content, types.MessageSticker):
+        await message.reply_sticker(message.remote_file_id)
+
+    elif isinstance(message.content, types.MessageVideo):
+        await message.reply_video(
+            message.remote_file_id,
+            caption=message.caption,
+            caption_entities=message.entities,
+        )
+
+    elif isinstance(message.content, types.MessageVoiceNote):
+        await message.reply_voice(
+            message.remote_file_id,
+            caption=message.caption,
+            caption_entities=message.entities,
+        )
+    else:
+        await message.reply_text("Oops! i don't know how to handle this message.")
+
+
+# Run the client
+client.run()
+```
+
+## Walkthrough
+
+### Client setup
+
+```python
+client = Client(
+    token="1088394097:AAQX2DnWiw4ihwiJUhIHOGog8gGOI",  # Your bot token
+    api_id=0,
+    api_hash="API_HASH",
+    files_directory="BotDB",
+    database_encryption_key="1234echobot$",
+    td_verbosity=2,
+    td_log=types.LogStreamFile(path="tdlib.log", max_file_size=104857600),
+)
+```
+
+`Client` is the entry point for every Pytdbot program. Key parameters:
+
+- **`token`** — your bot token from [@BotFather](https://t.me/BotFather).
+- **`api_id` / `api_hash`** — your Telegram application credentials from [my.telegram.org](https://my.telegram.org/apps).
+- **`files_directory`** — directory where TDLib stores its local database and cached files.
+- **`database_encryption_key`** — passphrase TDLib uses to encrypt its local database.
+- **`td_verbosity`** — TDLib log level (0 = fatal only, 5 = very verbose). `2` is a good default.
+- **`td_log`** — routes TDLib's internal logs to a file instead of stdout.
+
+### Logging every update with `on_updateNewMessage`
+
+```python
+@client.on_updateNewMessage()
+async def print_message(_: Client, message: types.Message):
+    print(message)
+```
+
+`@client.on_updateNewMessage()` fires for every `UpdateNewMessage` event that arrives from TDLib — before any higher-level filtering. Here it simply prints the raw `Message` object, which is useful during development. The first argument is the `Client` instance (named `_` to signal it is unused) and the second is the `types.Message` update.
+
+### Echoing messages with `on_message`
+
+```python
+@client.on_message()
+async def echo(_: Client, message: types.Message):
+    if isinstance(message.content, types.MessageText):
+        await message.reply_text(message.text, entities=message.entities)
+    ...
+```
+
+`@client.on_message()` is a higher-level decorator that wraps `on_updateNewMessage` and additionally exposes convenient bound methods directly on the `Message` object. Inside the handler, `message.content` is a typed TDLib object whose concrete class tells you what kind of content was received.
+
+The handler dispatches on `message.content` type using `isinstance`:
+
+| `message.content` type | Reply method used |
+|---|---|
+| `MessageText` | `reply_text(text, entities=...)` |
+| `MessageAnimation` | `reply_animation(file_id, caption=..., caption_entities=...)` |
+| `MessageAudio` | `reply_audio(file_id, caption=..., caption_entities=...)` |
+| `MessageDocument` | `reply_document(file_id, caption=..., caption_entities=...)` |
+| `MessagePhoto` | `reply_photo(file_id, caption=..., caption_entities=...)` |
+| `MessageSticker` | `reply_sticker(file_id)` |
+| `MessageVideo` | `reply_video(file_id, caption=..., caption_entities=...)` |
+| `MessageVoiceNote` | `reply_voice(file_id, caption=..., caption_entities=...)` |
+
+### Bound method helpers
+
+The `reply_*` methods are **bound methods** mixed into `types.Message` by `MessageBoundMethods`. They are convenience wrappers around the lower-level `Client` send methods.
+
+- **`message.text`** — shortcut property that returns `message.content.text.text` when the content is `MessageText`, and `""` otherwise.
+- **`message.entities`** — returns the list of `TextEntity` formatting entities for text messages (bold, italic, links, etc.).
+- **`message.caption`** — returns the caption text for media messages (photo, video, audio, etc.).
+- **`message.remote_file_id`** — returns the TDLib remote file ID string for any media type. Passing this to a send method re-uses the already-uploaded file without re-uploading it.
+
+For the `else` branch, `reply_text` is called with a plain string to handle any content type the bot does not explicitly recognise.
+
+## Tips
+
+<Tip>
+  You can narrow the `on_message` handler to specific content types by passing a filter. For example, to handle only photos:
+
+  ```python
+  from pytdbot import filters
+
+  @client.on_message(filters.create(lambda _, m: isinstance(m.content, types.MessagePhoto)))
+  async def photo_only(_: Client, message: types.Message):
+      await message.reply_photo(message.remote_file_id, caption=message.caption)
+  ```
+</Tip>
+
+<Tip>
+  Remove the `on_updateNewMessage` handler (or replace `print` with `logging.debug`) before deploying to production to avoid printing every message to stdout.
+</Tip>

@@ -1,0 +1,336 @@
+---
+title: "Decorators & handlers"
+description: "Register async functions as update handlers using Pytdbot's decorator API."
+---
+
+## Overview
+
+Pytdbot gives you two ways to register a handler function.
+
+**Style 1 — decorator on a `Client` instance**
+
+Use `@client.<handler>()` when you define your handlers inline, in the same file where you create the `Client`. The handler is registered immediately when the decorator runs.
+
+```python
+@client.on_message()
+async def handle_message(client, message):
+    await message.reply_text("Hello!")
+```
+
+**Style 2 — standalone handler with `_handler` attribute (plugins)**
+
+Use this pattern when you split your bot into separate plugin modules. Pytdbot detects a `_handler` attribute on a function and registers it automatically when the plugin is loaded.
+
+```python
+from pytdbot import filters
+from pytdbot.handlers import Handler
+
+@filters.create
+async def is_text(_, event):
+    return hasattr(event, "content") and event.content.getType() == "messageText"
+
+@is_text
+async def handle_text(client, message):
+    await message.reply_text("Got a text message!")
+
+# Pytdbot reads handle_text._handler when loading the plugin
+```
+
+When a `Filter` is used as a decorator, it assigns a `Handler` instance to `func._handler` automatically. You can also assign it manually:
+
+```python
+from pytdbot.handlers import Handler
+from pytdbot import filters
+
+my_filter = filters.create(lambda _, event: True)
+
+async def my_handler(client, update):
+    pass
+
+my_handler._handler = Handler(
+    func=my_handler,
+    update_type="updateNewMessage",
+    filter=my_filter,
+    position=None,
+    inner_object=False,
+    timeout=None,
+)
+```
+
+---
+
+## Common parameters
+
+All handler decorators accept the same set of parameters.
+
+<ParamField path="filters" type="Filter">
+  A `Filter` instance that controls whether this handler runs for a given update. If the filter returns `False`, the handler is skipped. Defaults to `None` (all updates pass through).
+</ParamField>
+
+<ParamField path="position" type="int">
+  Index in the handler list where this handler is inserted. Defaults to `None`, which appends the handler at the end. Use `0` to run a handler before all others.
+</ParamField>
+
+<ParamField path="timeout" type="float">
+  Maximum execution time in seconds before the handler is timed out. Defaults to `None`, which falls back to `Client.default_handlers_timeout`.
+</ParamField>
+
+<ParamField path="inner_object" type="bool">
+  When `True`, the handler receives the inner object of the update instead of the update envelope itself. For example, for `updateNewMessage` with `inner_object=True`, the handler receives a `Message` directly instead of `UpdateNewMessage`. Defaults to `False`.
+</ParamField>
+
+---
+
+## Special decorators
+
+### `@client.initializer()`
+
+Runs before all regular handlers for each update. Use initializers to enrich or pre-process the update object before your main handlers see it.
+
+```python
+@client.initializer()
+async def setup(client, update):
+    # Called before any other handler for every update
+    update._extra = {"processed": True}
+```
+
+<ParamField path="filters" type="Filter">
+  Optional filter. If provided, the initializer only runs for matching updates.
+</ParamField>
+
+<ParamField path="position" type="int">
+  Position in the initializer list. Defaults to `None` (append).
+</ParamField>
+
+<ParamField path="inner_object" type="bool">
+  Pass the inner object of the update instead of the envelope. Defaults to `False`.
+</ParamField>
+
+<ParamField path="timeout" type="float">
+  Max execution time in seconds. Defaults to `None`.
+</ParamField>
+
+---
+
+### `@client.finalizer()`
+
+Runs after all regular handlers for each update. Use finalizers for cleanup or post-processing tasks.
+
+```python
+@client.finalizer()
+async def teardown(client, update):
+    # Called after all handlers have run for every update
+    pass
+```
+
+Accepts the same parameters as `@client.initializer()`.
+
+---
+
+## Update handlers
+
+These decorators are auto-generated from the TDLib schema. Each one corresponds to a specific TDLib update type. The handler function always receives `(client: Client, update)` where `update` is the TDLib update object for that type, unless `inner_object=True` is set.
+
+### `on_updateNewMessage()`
+
+A new message was received. Can also be an outgoing message. The handler receives `UpdateNewMessage`.
+
+```python
+@client.on_updateNewMessage()
+async def handle(client, update):
+    # update is UpdateNewMessage
+    print(update.message.text)
+```
+
+---
+
+### `on_message()`
+
+A convenience wrapper for `updateNewMessage` with `inner_object=True`. The handler receives the `Message` object directly instead of the `UpdateNewMessage` envelope.
+
+```python
+@client.on_message()
+async def handle(client, message):
+    # message is Message
+    await message.reply_text("Received!")
+```
+
+<Note>
+  `on_message()` does not accept an `inner_object` parameter — it is always `True`.
+</Note>
+
+---
+
+### `on_updateAuthorizationState()`
+
+The user authorization state has changed. Fires during login, logout, and session events. The handler receives `UpdateAuthorizationState`.
+
+```python
+@client.on_updateAuthorizationState()
+async def on_auth(client, update):
+    print(update.authorization_state.getType())
+```
+
+---
+
+### `on_updateNewCallbackQuery()`
+
+A new incoming callback query. For bots only. The handler receives `UpdateNewCallbackQuery`.
+
+```python
+@client.on_updateNewCallbackQuery()
+async def on_callback(client, update):
+    await client.answerCallbackQuery(
+        callback_query_id=update.id,
+        text="Got it!",
+    )
+```
+
+---
+
+### `on_updateNewInlineQuery()`
+
+A new incoming inline query. For bots only. The handler receives `UpdateNewInlineQuery`.
+
+```python
+@client.on_updateNewInlineQuery()
+async def on_inline(client, update):
+    print(update.query)
+```
+
+---
+
+### `on_updateMessageEdited()`
+
+A message was edited. Note: changes to message content arrive separately via `updateMessageContent`. The handler receives `UpdateMessageEdited`.
+
+```python
+@client.on_updateMessageEdited()
+async def on_edit(client, update):
+    print(f"Message {update.message_id} was edited in chat {update.chat_id}")
+```
+
+---
+
+### `on_updateDeleteMessages()`
+
+Some messages were deleted. The handler receives `UpdateDeleteMessages`.
+
+```python
+@client.on_updateDeleteMessages()
+async def on_delete(client, update):
+    print(f"Deleted message IDs: {update.message_ids}")
+```
+
+---
+
+### `on_updateChatLastMessage()`
+
+The last message of a chat was changed. The handler receives `UpdateChatLastMessage`.
+
+```python
+@client.on_updateChatLastMessage()
+async def on_last_msg(client, update):
+    print(f"Chat {update.chat_id} last message updated")
+```
+
+---
+
+### `on_updateUserStatus()`
+
+A user went online or offline. The handler receives `UpdateUserStatus`.
+
+```python
+@client.on_updateUserStatus()
+async def on_status(client, update):
+    print(f"User {update.user_id} status: {update.status.getType()}")
+```
+
+---
+
+### `on_updateNewChatJoinRequest()`
+
+A user sent a join request to a chat. For bots only. The handler receives `UpdateNewChatJoinRequest`.
+
+```python
+@client.on_updateNewChatJoinRequest()
+async def on_join_request(client, update):
+    print(f"Join request from user {update.user_id} in chat {update.chat_id}")
+```
+
+---
+
+## `add_handler()` method
+
+You can register handlers programmatically instead of using decorators.
+
+```python
+async def my_handler(client, update):
+    print(update)
+
+client.add_handler(
+    update_type="updateNewMessage",
+    func=my_handler,
+    filters=my_filter,
+    position=None,
+    inner_object=False,
+    timeout=None,
+)
+```
+
+<ParamField path="update_type" type="str | type[Update]" required>
+  The TDLib update type as a string (e.g. `"updateNewMessage"`) or a subclass of `pytdbot.types.Update`.
+</ParamField>
+
+<ParamField path="func" type="Callable" required>
+  The async function to call when the update arrives.
+</ParamField>
+
+<ParamField path="filters" type="Filter">
+  Optional filter to apply before calling `func`.
+</ParamField>
+
+<ParamField path="position" type="int">
+  Position in the handler list. Defaults to `None` (append).
+</ParamField>
+
+<ParamField path="inner_object" type="bool">
+  When `True`, pass the inner object of the update instead of the envelope. Defaults to `False`.
+</ParamField>
+
+<ParamField path="timeout" type="float">
+  Max execution time in seconds. Defaults to `None`.
+</ParamField>
+
+<ParamField path="is_from_plugin" type="bool">
+  Mark this handler as originating from a plugin, enabling runtime reload support during development. Defaults to `False`.
+</ParamField>
+
+---
+
+## `StopHandlers` exception
+
+Raising `StopHandlers` inside a handler immediately stops the handler chain for the current update. No subsequent handlers in the list are called.
+
+```python
+from pytdbot import filters
+from pytdbot.exception import StopHandlers
+
+@filters.create
+async def is_bot(_, message):
+    return message.sender_id.getType() == "messageSenderUser"
+
+@client.on_message(filters=is_bot)
+async def guard(client, message):
+    if message.via_bot_user_id:
+        raise StopHandlers  # skip all remaining handlers for this message
+
+@client.on_message()
+async def process(client, message):
+    # Only reached if guard did not raise StopHandlers
+    await message.reply_text("Processed!")
+```
+
+<Note>
+  `StopHandlers` stops only the handlers for the current update. It does not affect other updates or other update types.
+</Note>

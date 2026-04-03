@@ -1,0 +1,306 @@
+---
+title: "User account bot"
+description: "Log in as a regular Telegram user account and automate actions using Pytdbot."
+---
+
+<Warning>
+  **Using userbots may violate Telegram's Terms of Service** and can result in your account being temporarily restricted or permanently banned. Only use a userbot on accounts you can afford to lose. Never automate actions that violate [Telegram's ToS](https://telegram.org/tos) — including mass messaging, scraping, or spamming.
+</Warning>
+
+In addition to bot tokens, Pytdbot supports logging in as a real Telegram user account. This is called **user-bot mode**. Pass `user_bot=True` to `Client` and omit the `token` parameter. TDLib will walk you through the standard Telegram login flow — phone number, verification code, and optionally a two-factor authentication (2FA) password or a QR code scan.
+
+## Full source
+
+```python userbot.py
+import asyncio
+
+try:
+    import readline  # noqa: F401
+except ImportError:
+    pass
+
+from pytdbot import Client, types
+
+try:
+    import qrcode
+except ImportError:
+    qrcode = None
+
+client = Client(
+    api_id=0,
+    api_hash="API_HASH",
+    files_directory="UserBot",
+    database_encryption_key="tahinidates$",
+    td_verbosity=2,
+    td_log=types.LogStreamFile(path="tdlib.log", max_file_size=104857600),
+    user_bot=True,
+)
+
+
+@client.on_message()
+async def handle_commands(_: Client, message: types.Message):
+    if message.from_id == client.options["my_id"]:  # it's me
+        if message.text == "!hi":
+            await message.edit_text("Hi, this is from Pytdbot!")
+
+
+def async_input(prompt: str = ""):
+    return asyncio.to_thread(lambda: input(prompt))
+
+
+def clear_print():
+    print("\033c", end="")
+
+
+def get_via_code_type(code_type):
+    if isinstance(code_type, types.AuthenticationCodeTypeTelegramMessage):
+        return "Telegram app"
+    elif isinstance(code_type, types.AuthenticationCodeTypeSms):
+        return "SMS"
+    elif isinstance(
+        code_type,
+        (types.AuthenticationCodeTypeSmsWord, types.AuthenticationCodeTypeSmsPhrase),
+    ):
+        sms_type = (
+            "Word"
+            if isinstance(code_type, types.AuthenticationCodeTypeSmsWord)
+            else "Phrase"
+        )
+        return (
+            f"SMS {sms_type}" + ""
+            if not code_type.first_letter
+            else f" (first letter: {code_type.first_letter})"
+        )
+    elif isinstance(code_type, types.AuthenticationCodeTypeCall):
+        return "Call"
+    elif isinstance(code_type, types.AuthenticationCodeTypeFlashCall):
+        return "Flash call"
+    elif isinstance(code_type, types.AuthenticationCodeTypeMissedCall):
+        return f"Missed call (prefix: {code_type.phone_number_prefix}, length: {code_type.phone_number_length})"
+    elif isinstance(code_type, types.AuthenticationCodeTypeFragment):
+        return f"Fragment (url: {code_type.url})"
+    else:
+        return "Unknown"
+
+
+@client.on_updateAuthorizationState()
+async def handle_auth(_: Client, auth: types.UpdateAuthorizationState):
+    state = auth.authorization_state
+
+    if isinstance(state, types.AuthorizationStateWaitPhoneNumber):
+        while True:
+            user_input = await async_input(
+                'Enter your phone number, or type "qr" to log in using a QR code: '
+            )
+            user_input = user_input.strip()
+
+            if not user_input:
+                continue
+
+            if user_input.lower() == "qr":
+                res = await client.requestQrCodeAuthentication()
+            else:
+                res = await client.setAuthenticationPhoneNumber(phone_number=user_input)
+
+            if isinstance(res, types.Error):
+                print(f"Error: {res.message}")
+                continue
+
+            return
+    elif isinstance(state, types.AuthorizationStateWaitCode):
+        code_info = state.code_info
+        code_type = get_via_code_type(code_info.type)
+        while True:
+            user_input = await async_input(f"Enter the code recevied via {code_type}: ")
+            user_input = user_input.strip()
+
+            if not user_input:
+                continue
+
+            res = await client.checkAuthenticationCode(code=user_input)
+
+            if isinstance(res, types.Error):
+                print(f"Error: {res.message}")
+                continue
+
+            return
+    elif isinstance(state, types.AuthorizationStateWaitOtherDeviceConfirmation):
+        if not qrcode:
+            print(
+                "\nThe 'qrcode' module is not installed.\n"
+                "Install it with:\n"
+                "  pip install qrcode\n"
+            )
+            await client.stop()
+            return
+
+        clear_print()
+
+        qr = qrcode.QRCode(border=1)
+        qr.add_data(state.link)
+        qr.make(fit=True)
+
+        print("\nScan this QR code using your Telegram mobile app.")
+        print("Go to Settings → Devices → Link Desktop Device.\n")
+
+        qr.print_ascii()
+        qr.clear()
+    elif isinstance(state, types.AuthorizationStateWaitPassword):
+        clear_print()
+        while True:
+            user_input = await async_input(
+                f"Enter your 2FA password (hint: {state.password_hint}): "
+            )
+            user_input = user_input.strip()
+
+            if not user_input:
+                continue
+
+            res = await client.checkAuthenticationPassword(password=user_input)
+
+            if isinstance(res, types.Error):
+                print(f"Error: {res.message}")
+                continue
+
+            return
+    elif isinstance(state, types.AuthorizationStateReady):
+        me = await client.getMe()
+        clear_print()
+        print(f"Logged in as {me.first_name} (ID: {me.id})")
+
+
+# Run the client
+client.run()
+```
+
+## Walkthrough
+
+### Client setup for user-bot mode
+
+```python
+client = Client(
+    api_id=0,
+    api_hash="API_HASH",
+    files_directory="UserBot",
+    database_encryption_key="tahinidates$",
+    td_verbosity=2,
+    td_log=types.LogStreamFile(path="tdlib.log", max_file_size=104857600),
+    user_bot=True,
+)
+```
+
+The only difference from a regular bot is `user_bot=True` and the absence of a `token`. TDLib will use a session file in `files_directory` to remember the login, so you only need to go through the authorization flow once.
+
+### Authorization flow
+
+TDLib drives the login sequence by emitting `UpdateAuthorizationState` events. Register a handler with `@client.on_updateAuthorizationState()` and switch on the concrete state type:
+
+<Steps>
+  <Step title="AuthorizationStateWaitPhoneNumber — enter your phone number">
+    TDLib is ready to receive credentials. Prompt the user for a phone number in E.164 format (e.g. `+12025551234`) and submit it with `setAuthenticationPhoneNumber`. Alternatively, call `requestQrCodeAuthentication` to switch to QR code login instead.
+
+    ```python
+    if isinstance(state, types.AuthorizationStateWaitPhoneNumber):
+        user_input = await async_input(
+            'Enter your phone number, or type "qr" to log in using a QR code: '
+        )
+        if user_input.lower() == "qr":
+            res = await client.requestQrCodeAuthentication()
+        else:
+            res = await client.setAuthenticationPhoneNumber(phone_number=user_input)
+
+        if isinstance(res, types.Error):
+            print(f"Error: {res.message}")
+    ```
+
+    Always check whether the result is `types.Error` — TDLib returns errors as values, not exceptions.
+  </Step>
+
+  <Step title="AuthorizationStateWaitCode — enter the verification code">
+    Telegram sends a one-time code via the method indicated by `state.code_info.type`. The helper `get_via_code_type` in the example translates the TDLib type objects into human-readable strings (e.g. `"SMS"`, `"Telegram app"`, `"Call"`).
+
+    ```python
+    elif isinstance(state, types.AuthorizationStateWaitCode):
+        code_type = get_via_code_type(state.code_info.type)
+        user_input = await async_input(f"Enter the code received via {code_type}: ")
+        res = await client.checkAuthenticationCode(code=user_input)
+
+        if isinstance(res, types.Error):
+            print(f"Error: {res.message}")
+    ```
+  </Step>
+
+  <Step title="AuthorizationStateWaitOtherDeviceConfirmation — QR code login">
+    If you chose QR login in step 1, this state fires. `state.link` contains the `tg://` deep link that encodes the authentication token. The example renders it as ASCII art in the terminal using the `qrcode` library.
+
+    ```python
+    elif isinstance(state, types.AuthorizationStateWaitOtherDeviceConfirmation):
+        qr = qrcode.QRCode(border=1)
+        qr.add_data(state.link)
+        qr.make(fit=True)
+        qr.print_ascii()
+    ```
+
+    On your phone, open **Settings → Devices → Link Desktop Device** and scan the code.
+
+    <Note>
+      Install the optional dependency with `pip install qrcode` to enable this path. The example gracefully falls back and stops the client if the module is not available.
+    </Note>
+  </Step>
+
+  <Step title="AuthorizationStateWaitPassword — enter your 2FA password">
+    If two-factor authentication is enabled on the account, TDLib emits this state. `state.password_hint` contains the hint set by the user, which you can surface in the prompt.
+
+    ```python
+    elif isinstance(state, types.AuthorizationStateWaitPassword):
+        user_input = await async_input(
+            f"Enter your 2FA password (hint: {state.password_hint}): "
+        )
+        res = await client.checkAuthenticationPassword(password=user_input)
+
+        if isinstance(res, types.Error):
+            print(f"Error: {res.message}")
+    ```
+  </Step>
+
+  <Step title="AuthorizationStateReady — logged in">
+    TDLib is fully authorized. `client.getMe()` returns a `User` object for the logged-in account.
+
+    ```python
+    elif isinstance(state, types.AuthorizationStateReady):
+        me = await client.getMe()
+        print(f"Logged in as {me.first_name} (ID: {me.id})")
+    ```
+
+    After this point, all other handlers are active and the client begins processing incoming updates.
+  </Step>
+</Steps>
+
+### Handling your own messages
+
+In user-bot mode, the `on_message` handler fires for messages in every chat — including ones you send yourself. Check `message.from_id` against `client.options["my_id"]` to scope a handler to your own messages only:
+
+```python
+@client.on_message()
+async def handle_commands(_: Client, message: types.Message):
+    if message.from_id == client.options["my_id"]:  # it's me
+        if message.text == "!hi":
+            await message.edit_text("Hi, this is from Pytdbot!")
+```
+
+`client.options["my_id"]` is populated by TDLib as soon as authorization completes. `message.edit_text` replaces the content of the message in-place — a common user-bot pattern for responding to self-commands.
+
+<Info>
+  `message.from_id` is a bound-method property on `types.Message`. It returns `sender_id.user_id` for user senders and `sender_id.chat_id` for channel senders, so a simple integer comparison is sufficient.
+</Info>
+
+### Blocking input without blocking the event loop
+
+The standard `input()` call blocks the thread it runs on. Pytdbot runs on asyncio, so blocking the main thread would stall all update processing. The example wraps `input` in `asyncio.to_thread` to offload it to a thread-pool worker:
+
+```python
+def async_input(prompt: str = ""):
+    return asyncio.to_thread(lambda: input(prompt))
+```
+
+Await `async_input(...)` exactly as you would `asyncio.sleep` — the event loop stays responsive while waiting for the user to type.

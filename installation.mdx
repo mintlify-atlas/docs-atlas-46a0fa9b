@@ -1,0 +1,78 @@
+---
+title: "Installation"
+description: "Install Pytdbot and configure TDLib for your environment."
+---
+
+<Note>
+  Pytdbot requires **Python 3.10 or later**. Check your version with `python --version` before proceeding.
+</Note>
+
+## Install Pytdbot
+
+<CodeGroup>
+
+```bash With bundled TDLib (recommended)
+pip install pytdbot[tdjson]
+```
+
+```bash Without bundled TDLib
+pip install pytdbot
+```
+
+</CodeGroup>
+
+The `tdjson` extra installs the [`tdjson`](https://github.com/AYMENJD/tdjson) package, which provides a pre-built TDLib shared library for your platform. This is the recommended approach for most users.
+
+If the `tdjson` wheel is not available for your platform or architecture, install the base package and [build TDLib from source](#building-tdlib-from-source) instead.
+
+<Warning>
+  Pre-built `tdjson` wheels are not available for every platform or CPU architecture.
+  If `pip install pytdbot[tdjson]` fails with a build or wheel error, fall back to
+  `pip install pytdbot` and supply a manually compiled TDLib binary via the `lib_path`
+  parameter on `Client`.
+</Warning>
+
+## Optional performance packages
+
+For faster JSON serialization, install [orjson](https://github.com/ijl/orjson) or [ujson](https://github.com/ultrajson/ultrajson). Pytdbot detects either library automatically at startup.
+
+```bash
+pip install pytdbot[tdjson] orjson
+```
+
+`orjson` is recommended over `ujson` as it is generally faster and handles more edge cases. Only one needs to be installed; if both are present, `orjson` takes priority.
+
+## Pre-release versions
+
+To install the latest development build from PyPI:
+
+```bash
+pip install --pre pytdbot
+```
+
+Pre-release versions may contain new features and bug fixes that have not yet been promoted to a stable release. Use them to test upcoming changes, but expect potential instability.
+
+## Building TDLib from source
+
+If the bundled `tdjson` wheel is unavailable for your platform (for example, certain ARM variants or BSD systems), you can compile TDLib yourself.
+
+1. Follow the official build instructions at [github.com/tdlib/td#building](https://github.com/tdlib/td#building).
+2. After a successful build, locate the shared library file (`libtdjson.so` on Linux, `libtdjson.dylib` on macOS, or `tdjson.dll` on Windows).
+3. Pass the path to the library when constructing the `Client`:
+
+```python
+from pytdbot import Client
+
+client = Client(
+    token="YOUR_BOT_TOKEN",
+    api_id=0,
+    api_hash="YOUR_API_HASH",
+    files_directory="BotDB",
+    database_encryption_key="your-encryption-key",
+    lib_path="/path/to/libtdjson.so",  # Path to your compiled TDLib
+)
+
+client.run()
+```
+
+The `lib_path` parameter accepts an absolute path to the compiled shared library. When `lib_path` is `None` (the default), Pytdbot attempts to locate TDLib automatically via the `tdjson` package.

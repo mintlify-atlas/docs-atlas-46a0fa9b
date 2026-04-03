@@ -1,0 +1,164 @@
+---
+title: "ClientManager"
+description: "Manage multiple Pytdbot Client instances sharing a single TDLib library instance."
+---
+
+`pytdbot.ClientManager` loads `libtdjson` once and routes TDLib updates to the correct `Client` instance by `@client_id`. This lets you run multiple bots or userbot sessions in a single process without paying the overhead of loading the native library multiple times.
+
+<Note>
+When you call `client.start()` on a standalone `Client`, pytdbot creates a `ClientManager` internally. You only need to instantiate `ClientManager` directly when managing **more than one** client in the same process.
+</Note>
+
+---
+
+## When to use `ClientManager` vs a single `Client`
+
+| Scenario | Recommendation |
+|----------|----------------|
+| Single bot or userbot | Use `Client` directly — it manages its own `ClientManager` internally. |
+| Multiple bots in one process | Instantiate `ClientManager` with a list of `Client` objects. |
+| Dynamic client lifecycle (add/remove at runtime) | Create an empty `ClientManager`, then call `add_client()` as needed. |
+
+---
+
+## Example
+
+This is the canonical usage pattern from the source docstring:
+
+```python multi_bot.py
+import asyncio
+from pytdbot import Client, ClientManager
+
+bot_a = Client(
+    api_id=123456,
+    api_hash="api_hash_a",
+    token="token_a",
+    database_encryption_key="key_a",
+    files_directory="./td_a",
+)
+
+bot_b = Client(
+    api_id=123456,
+    api_hash="api_hash_b",
+    token="token_b",
+    database_encryption_key="key_b",
+    files_directory="./td_b",
+)
+
+async def main():
+    manager = ClientManager([bot_a, bot_b])
+    await manager.start()
+
+    # start individual clients
+    await bot_a.start()
+    await bot_b.start()
+
+    # keep running
+    await asyncio.gather(bot_a.idle(), bot_b.idle())
+
+asyncio.run(main())
+```
+
+---
+
+## Constructor parameters
+
+<ParamField body="clients" type="list[Client]">
+  List of `pytdbot.Client` instances to register with this manager. Each client is assigned a unique `client_id` from TDLib. Omit (or pass `None`) to create an empty manager and add clients later via `add_client()`.
+</ParamField>
+
+<ParamField body="lib_path" type="str">
+  Explicit path to the `libtdjson` shared library. When omitted, pytdbot attempts to locate the library automatically.
+</ParamField>
+
+<ParamField body="verbosity" type="int" default="2">
+  TDLib log verbosity level applied once when the library is loaded. Default is `2`.
+</ParamField>
+
+<ParamField body="loop" type="asyncio.AbstractEventLoop">
+  Event loop to use for the internal receiver task. Defaults to the running loop detected at construction time.
+</ParamField>
+
+---
+
+## Methods
+
+### `await start()`
+
+```python
+await manager.start()
+```
+
+Starts the background TDLib receiver loop (a single-thread `ThreadPoolExecutor`) and registers all clients that were passed to the constructor. Each client in the list has `add_client()` called on it automatically. Calling `start()` a second time is a no-op.
+
+---
+
+### `await add_client(client, start_client=False)`
+
+```python
+await manager.add_client(bot_c, start_client=True)
+```
+
+Register a new `Client` with this manager at runtime. Assigns a `client_id` from TDLib and stores the mapping so incoming updates are dispatched correctly.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `client` | `pytdbot.Client` | required | The client instance to add. |
+| `start_client` | `bool` | `False` | Whether to call `client.start()` immediately after registering. |
+
+Raises `TypeError` if `client` is not a `pytdbot.Client` instance.
+
+---
+
+### `await delete_client(client_id, close_client=False)`
+
+```python
+await manager.delete_client(client_id=bot_a.client_id, close_client=True)
+```
+
+Remove a client from the manager by its numeric `client_id`. Pass `close_client=True` to call `client.stop()` before removing it.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `client_id` | `int` | required | The `client_id` assigned by TDLib (accessible via `client.client_id`). |
+| `close_client` | `bool` | `False` | Call `client.stop()` before removing. |
+
+Raises `ValueError` if no client with `client_id` is found.
+
+---
+
+### `await close(close_all_clients=False)`
+
+```python
+await manager.close(close_all_clients=True)
+```
+
+Stop the receiver loop and optionally close all managed clients first. Returns `True` on success. Calling `close()` a second time is a no-op.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `close_all_clients` | `bool` | `False` | Call `delete_client(..., close_client=True)` for every registered client before stopping. |
+
+---
+
+### `send(client_id, request)`
+
+```python
+manager.send(client_id=bot_a.client_id, request={"@type": "getMe"})
+```
+
+Low-level synchronous method that forwards a raw TDLib request dict to the specified client. You normally do not call this directly — `Client.invoke()` uses it internally.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `client_id` | `int` | Target client ID. |
+| `request` | `dict` | Raw TDLib request object. |
+
+---
+
+## Instance attributes
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `is_running` | `bool` | `True` while the receiver loop is active. |
+| `start_clients_on_add` | `bool` | Set to `True` when `ClientManager` was constructed with a list; means each client will call `start()` when registered. |
